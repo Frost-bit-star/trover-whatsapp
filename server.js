@@ -8,10 +8,10 @@ app.use(express.json());
 const BUSINESS_REGISTRATION_CODE = '87654321';
 let centralBusinessNumber = null;
 
-// ✅ Use persistent session directory for Render
+// ✅ Use writable local session directory
 const client = new Client({
   authStrategy: new LocalAuth({
-    dataPath: '/data/session'
+    dataPath: './session' // ✅ FIXED: use relative path instead of /data/session
   }),
   puppeteer: {
     headless: true,
@@ -42,7 +42,6 @@ function saveCentralNumber(number) {
 }
 
 client.on('qr', qr => {
-  // ✅ Show QR code in logs (for Render)
   console.log('📲 Scan this QR to link WhatsApp:');
   console.log(qr);
 });
