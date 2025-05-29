@@ -1,0 +1,26 @@
+name: build WhatsApp Bot
+
+on:
+  push:
+    branches:
+      - main  # Change this if your default branch is different
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: 📦 Install Dependencies
+        run: |
+          npm install
+
+      - name: ✅ Confirm Build Ready
+        run: echo "Dependencies installed and bot is ready to deploy."
