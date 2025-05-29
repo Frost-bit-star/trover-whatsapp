@@ -1,5 +1,6 @@
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const express = require('express');
+const QRCode = require('qrcode');
 const db = require('./db');
 
 const app = express();
@@ -7,11 +8,12 @@ app.use(express.json());
 
 const BUSINESS_REGISTRATION_CODE = '87654321';
 let centralBusinessNumber = null;
+let latestQR = null;
 
-// ✅ Use writable local session directory
+// ✅ Use persistent session directory (Render-compatible)
 const client = new Client({
   authStrategy: new LocalAuth({
-    dataPath: './session' // ✅ FIXED: use relative path instead of /data/session
+    dataPath: '/data/session' // Ensure this is persistent on Render
   }),
   puppeteer: {
     headless: true,
@@ -41,7 +43,9 @@ function saveCentralNumber(number) {
   );
 }
 
+// Show QR code in logs and store latest QR
 client.on('qr', qr => {
+  latestQR = qr;
   console.log('📲 Scan this QR to link WhatsApp:');
   console.log(qr);
 });
@@ -61,19 +65,17 @@ client.on('message', async msg => {
   const senderNumber = msg.from.split('@')[0];
   const text = msg.body.trim().toLowerCase();
 
-  // Link business number if not linked
+  // Link business number
   if (!centralBusinessNumber && text === `link ${BUSINESS_REGISTRATION_CODE}`) {
     centralBusinessNumber = senderNumber;
     saveCentralNumber(senderNumber);
     return await client.sendMessage(msg.from, `✅ This number has been successfully linked as the business sender!`);
   }
 
-  // Block usage if central number not linked
   if (!centralBusinessNumber) {
     return await client.sendMessage(msg.from, `🚫 Bot not activated. Send *link ${BUSINESS_REGISTRATION_CODE}* to activate.`);
   }
 
-  // Ensure only messages to/from central number are handled
   if (msg.to !== `${centralBusinessNumber}@c.us` && senderNumber !== centralBusinessNumber) {
     return await client.sendMessage(msg.from, `🚫 You can only communicate with the business number.`);
   }
@@ -94,9 +96,10 @@ client.on('message', async msg => {
         }
       }
     );
+  }
 
   // Recover API key
-  } else if (text.includes("recover apikey")) {
+  else if (text.includes("recover apikey")) {
     db.get(
       `SELECT apiKey FROM users WHERE number = ?`,
       [senderNumber],
@@ -158,6 +161,25 @@ app.post('/api/send', async (req, res) => {
       res.status(500).send("❌ Failed to send message");
     }
   });
+});
+
+// 🖼 Serve the QR Code as a web page
+app.get('/qr', async (req, res) => {
+  if (!latestQR) return res.status(404).send("QR code not generated yet");
+  try {
+    const dataUrl = await QRCode.toDataURL(latestQR);
+    res.send(`
+      <html>
+        <head><title>Scan WhatsApp QR</title></head>
+        <body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;">
+          <h2>📲 Scan to Link WhatsApp</h2>
+          <img src="${dataUrl}" />
+        </body>
+      </html>
+    `);
+  } catch (err) {
+    res.status(500).send("Error generating QR code");
+  }
 });
 
 client.initialize();
