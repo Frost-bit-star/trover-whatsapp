@@ -2,12 +2,13 @@ const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const express = require('express');
 const axios = require('axios');
 const db = require('./db');
-const qrcodeTerminal = require('qrcode-terminal'); // ✅ ADDED QR Terminal
+const qrcodeTerminal = require('qrcode-terminal');
 
 const app = express();
 app.use(express.json());
 
-const BUSINESS_REGISTRATION_CODE = '87654321';
+// ✅ HARDCODED Tanzanian business number in international format (without +)
+const HARDCODED_BUSINESS_NUMBER = '255776822641';
 let centralBusinessNumber = null;
 
 const client = new Client({
@@ -18,27 +19,20 @@ const client = new Client({
   }
 });
 
-function loadCentralNumber() {
-  db.get(`SELECT value FROM settings WHERE key = 'centralNumber'`, [], (err, row) => {
-    if (!err && row) {
-      centralBusinessNumber = row.value;
-      console.log(`✅ Loaded business number: ${centralBusinessNumber}`);
-    }
-  });
-}
-
-function saveCentralNumber(number) {
+// ✅ Save hardcoded number to DB and memory
+function registerHardcodedNumber() {
+  centralBusinessNumber = HARDCODED_BUSINESS_NUMBER;
   db.run(
     `INSERT OR REPLACE INTO settings (key, value) VALUES ('centralNumber', ?)`,
-    [number],
+    [centralBusinessNumber],
     (err) => {
       if (err) console.error('DB Save Error:', err);
-      else console.log(`✅ Business number saved: ${number}`);
+      else console.log(`✅ Business number registered: ${centralBusinessNumber}`);
     }
   );
 }
 
-// ✅ Updated QR code handler to generate terminal QR
+// Show QR for first-time login
 client.on('qr', qr => {
   console.log('📲 Scan this QR code to link WhatsApp:\n');
   qrcodeTerminal.generate(qr, { small: true });
@@ -46,7 +40,7 @@ client.on('qr', qr => {
 
 client.on('ready', () => {
   console.log('✅ WhatsApp bot is ready!');
-  loadCentralNumber();
+  registerHardcodedNumber();
 });
 
 function generate8DigitCode() {
@@ -57,24 +51,16 @@ client.on('message', async msg => {
   const senderNumber = msg.from.split('@')[0];
   const text = msg.body.trim().toLowerCase();
 
-  // Link business number
-  if (!centralBusinessNumber && text === `link ${BUSINESS_REGISTRATION_CODE}`) {
-    centralBusinessNumber = senderNumber;
-    saveCentralNumber(senderNumber);
-    return await client.sendMessage(msg.from, `✅ This number has been successfully linked as the business sender!`);
-  }
-
-  // Block usage if central number not linked
   if (!centralBusinessNumber) {
-    return await client.sendMessage(msg.from, `🚫 Bot not activated. Send *link ${BUSINESS_REGISTRATION_CODE}* to activate.`);
+    return await client.sendMessage(msg.from, `🚫 Bot is not activated.`);
   }
 
-  // Only allow chat between users and business number
+  // ✅ Only allow communication with the business number
   if (msg.to !== `${centralBusinessNumber}@c.us` && senderNumber !== centralBusinessNumber) {
     return await client.sendMessage(msg.from, `🚫 You can only communicate with the business number.`);
   }
 
-  // Handle "allow me"
+  // Handle activation
   if (text.includes("allow me")) {
     const apiKey = generate8DigitCode();
     db.run(
@@ -93,7 +79,7 @@ client.on('message', async msg => {
     return;
   }
 
-  // Handle "recover apikey"
+  // Handle API key recovery
   if (text.includes("recover apikey")) {
     db.get(
       `SELECT apiKey FROM users WHERE number = ?`,
@@ -114,7 +100,7 @@ client.on('message', async msg => {
     return;
   }
 
-  // 🤖 Forward message to AI if not one of the above
+  // AI fallback
   try {
     const aiResponse = await axios.post(
       'https://troverstarapiai.vercel.app/api/chat',
@@ -133,7 +119,7 @@ client.on('message', async msg => {
   }
 });
 
-// REST API to send messages from business number
+// ✅ REST API for sending messages
 app.post('/api/send', async (req, res) => {
   const { apikey, message, mediaUrl, caption } = req.body;
 
