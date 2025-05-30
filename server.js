@@ -2,12 +2,11 @@ const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const express = require('express');
 const axios = require('axios');
 const db = require('./db');
-const qrcodeTerminal = require('qrcode-terminal');
 
 const app = express();
 app.use(express.json());
 
-// Hardcoded Tanzanian business number in international format (without +)
+// ✅ HARDCODED Tanzanian business number in international format (without +)
 const HARDCODED_BUSINESS_NUMBER = '255776822641';
 let centralBusinessNumber = HARDCODED_BUSINESS_NUMBER;
 
@@ -19,42 +18,34 @@ const client = new Client({
   }
 });
 
-// Register the hardcoded number in the database
+// ✅ Save hardcoded number to DB
 function registerHardcodedNumber() {
   db.run(
     `INSERT OR REPLACE INTO settings (key, value) VALUES ('centralNumber', ?)`,
     [centralBusinessNumber],
     (err) => {
       if (err) console.error('DB Save Error:', err);
-      else console.log(`Business number registered: ${centralBusinessNumber}`);
+      else console.log(`✅ Business number registered: ${centralBusinessNumber}`);
     }
   );
 }
 
-// Show QR for first-time login
-client.on('qr', qr => {
-  console.log('Scan this QR code to link WhatsApp:\n');
-  qrcodeTerminal.generate(qr, { small: true });
-});
-
-client.on('ready', () => {
-  console.log('WhatsApp bot is ready!');
+// Generate pairing code after client is ready
+client.on('ready', async () => {
+  console.log('✅ WhatsApp bot is ready!');
   registerHardcodedNumber();
-  generateAndStorePairingCode();
+  await generateAndStorePairingCode();
 });
 
 // Generate and store pairing code
-function generateAndStorePairingCode() {
-  client.requestPairingCode(centralBusinessNumber).then((code) => {
+async function generateAndStorePairingCode() {
+  try {
+    const code = await client.requestPairingCode(centralBusinessNumber);
     console.log('Pairing code:', code);
     // Store the pairing code in the database if needed
-  }).catch((err) => {
+  } catch (err) {
     console.error('Error generating pairing code:', err);
-  });
-}
-
-function generate8DigitCode() {
-  return Math.floor(10000000 + Math.random() * 90000000).toString();
+  }
 }
 
 client.on('message', async msg => {
@@ -62,12 +53,12 @@ client.on('message', async msg => {
   const text = msg.body.trim().toLowerCase();
 
   if (!centralBusinessNumber) {
-    return await client.sendMessage(msg.from, `Bot is not activated.`);
+    return await client.sendMessage(msg.from, `🚫 Bot is not activated.`);
   }
 
-  // Only allow communication with the business number
+  // ✅ Only allow communication with the business number
   if (msg.to !== `${centralBusinessNumber}@c.us` && senderNumber !== centralBusinessNumber) {
-    return await client.sendMessage(msg.from, `You can only communicate with the business number.`);
+    return await client.sendMessage(msg.from, `🚫 You can only communicate with the business number.`);
   }
 
   // Handle activation
@@ -79,7 +70,7 @@ client.on('message', async msg => {
       async err => {
         if (!err) {
           await client.sendMessage(msg.from,
-            `You're activated!\n\nAPI Key: *${apiKey}*\n\nUse it at:\nhttps://trover.42web.io/devs.php`
+            `✅ You're activated!\n\n🔑 API Key: *${apiKey}*\n\nUse it at:\nhttps://trover.42web.io/devs.php`
           );
         } else {
           console.error('DB Insert Error:', err);
@@ -97,13 +88,13 @@ client.on('message', async msg => {
       async (err, row) => {
         if (err) {
           console.error('DB Fetch Error:', err);
-          return await client.sendMessage(msg.from, "Error accessing your data.");
+          return await client.sendMessage(msg.from, "❌ Error accessing your data.");
         }
 
         if (row) {
-          await client.sendMessage(msg.from, `Your existing API Key: *${row.apiKey}*`);
+          await client.sendMessage(msg.from, `🔐 Your existing API Key: *${row.apiKey}*`);
         } else {
-          await client.sendMessage(msg.from, `No API key found. Send *allow me* to get one.`);
+          await client.sendMessage(msg.from, `⚠️ No API key found. Send *allow me* to get one.`);
         }
       }
     );
@@ -121,15 +112,15 @@ client.on('message', async msg => {
       { headers: { "Content-Type": "application/json" } }
     );
 
-    const aiReply = aiResponse.data?.response?.content || "Sorry, I couldn't understand that.";
+    const aiReply = aiResponse.data?.response?.content || "🤖 Sorry, I couldn't understand that.";
     await client.sendMessage(msg.from, aiReply);
   } catch (error) {
     console.error("AI Request Failed:", error.message);
-    await client.sendMessage(msg.from, "AI service unavailable. Try again later.");
+    await client.sendMessage(msg.from, "❌ AI service unavailable. Try again later.");
   }
 });
 
-// REST API for sending messages
+// ✅ REST API for sending messages
 app.post('/api/send', async (req, res) => {
   const { apikey, message, mediaUrl, caption } = req.body;
 
@@ -161,13 +152,13 @@ app.post('/api/send', async (req, res) => {
         await client.sendMessage(chatId, message);
       }
 
-      res.send("Message sent from business number");
+      res.send("✅ Message sent from business number");
     } catch (e) {
       console.error('Send Error:', e);
-      res.status(500).send("Failed to send message");
+      res.status(500).send("❌ Failed to send message");
     }
   });
 });
 
 client.initialize();
-app.listen(3000, () => console.log('Server running on port 3000'));
+app.listen(3000, () => console.log('🚀 Server running on port 3000'));
