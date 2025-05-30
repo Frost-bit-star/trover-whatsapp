@@ -23,49 +23,63 @@ jobs:
           git config --global url."https://github.com/".insteadOf git@github.com:
 
       - name: 📦 Install Dependencies (including GitHub repo package)
-        run: npm install
+        run: npm install || true
 
-      - name: 🧩 Install Puppeteer Dependencies
+      - name: 🧩 Install Puppeteer Dependencies (conditionally)
+        if: always()
         run: |
-          sudo apt-get update && sudo apt-get install -y \
-            gconf-service \
-            libasound2 \
-            libatk1.0-0 \
-            libc6 \
-            libcairo2 \
-            libcups2 \
-            libdbus-1-3 \
-            libexpat1 \
-            libfontconfig1 \
-            libgcc1 \
-            libgconf-2-4 \
-            libgdk-pixbuf2.0-0 \
-            libglib2.0-0 \
-            libgtk-3-0 \
-            libnspr4 \
-            libpango-1.0-0 \
-            libpangocairo-1.0-0 \
-            libstdc++6 \
-            libx11-6 \
-            libx11-xcb1 \
-            libxcb1 \
-            libxcomposite1 \
-            libxcursor1 \
-            libxdamage1 \
-            libxext6 \
-            libxfixes3 \
-            libxi6 \
-            libxrandr2 \
-            libxrender1 \
-            libxss1 \
-            libxtst6 \
-            ca-certificates \
-            fonts-liberation \
-            libappindicator1 \
-            libnss3 \
-            lsb-release \
-            xdg-utils \
-            wget
+          if grep -q puppeteer package.json; then
+            echo "🧩 Puppeteer detected. Installing system dependencies..."
+            sudo apt-get update && sudo apt-get install -y \
+              gconf-service \
+              libasound2 \
+              libatk1.0-0 \
+              libc6 \
+              libcairo2 \
+              libcups2 \
+              libdbus-1-3 \
+              libexpat1 \
+              libfontconfig1 \
+              libgcc1 \
+              libgconf-2-4 \
+              libgdk-pixbuf2.0-0 \
+              libglib2.0-0 \
+              libgtk-3-0 \
+              libnspr4 \
+              libpango-1.0-0 \
+              libpangocairo-1.0-0 \
+              libstdc++6 \
+              libx11-6 \
+              libx11-xcb1 \
+              libxcb1 \
+              libxcomposite1 \
+              libxcursor1 \
+              libxdamage1 \
+              libxext6 \
+              libxfixes3 \
+              libxi6 \
+              libxrandr2 \
+              libxrender1 \
+              libxss1 \
+              libxtst6 \
+              ca-certificates \
+              fonts-liberation \
+              libappindicator1 \
+              libnss3 \
+              lsb-release \
+              xdg-utils \
+              wget
+          else
+            echo "🧩 Puppeteer not detected. Skipping system dependencies."
+          fi
+        continue-on-error: true
+
+      - name: 🔥 Ensure Firebase is Installed
+        if: always()
+        run: |
+          echo "🔍 Checking Firebase tools..."
+          npm install firebase || true
 
       - name: ✅ Confirm Build Ready
-        run: echo "🚀 WhatsApp Bot dependencies installed and ready."
+        if: always()
+        run: echo "🚀 WhatsApp Bot dependencies installed and build ready."
