@@ -6,13 +6,12 @@
   "scripts": {
     "start": "node index.js"
   },
-  "author": "Morgan miller",
+  "author": "Morgan Miller",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.4",
     "axios": "^1.6.0",
-    "whatsapp-web.js": "latest",
+    "express": "^4.18.4",
     "firebase-admin": "^11.10.1",
-    "whatsapp-web.js-firebase-auth": "^1.2.2"
+    "whatsapp-web.js": "^1.19.3"
   }
 }

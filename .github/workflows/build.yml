@@ -3,7 +3,7 @@ name: Build WhatsApp Bot
 on:
   push:
     branches:
-      - main  # Update if your default branch is different
+      - main  # or your default branch
 
 jobs:
   build:
@@ -18,36 +18,50 @@ jobs:
         with:
           node-version: 18
 
-      - name: 📂 Create session directory
-        run: |
-          mkdir -p ./session
-          chmod -R 777 ./session  # Ensures write permissions
-
       - name: 📦 Install Dependencies
-        run: |
-          npm install
+        run: npm install
 
-      # Optional: Install Puppeteer dependencies (only if needed)
       - name: 🧩 Install Puppeteer Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y \
-            wget \
-            ca-certificates \
-            fonts-liberation \
-            libappindicator3-1 \
+            gconf-service \
             libasound2 \
-            libatk-bridge2.0-0 \
             libatk1.0-0 \
+            libc6 \
+            libcairo2 \
             libcups2 \
             libdbus-1-3 \
+            libexpat1 \
+            libfontconfig1 \
+            libgcc1 \
+            libgconf-2-4 \
             libgdk-pixbuf2.0-0 \
+            libglib2.0-0 \
+            libgtk-3-0 \
             libnspr4 \
-            libnss3 \
+            libpango-1.0-0 \
+            libpangocairo-1.0-0 \
+            libstdc++6 \
+            libx11-6 \
             libx11-xcb1 \
+            libxcb1 \
             libxcomposite1 \
+            libxcursor1 \
             libxdamage1 \
+            libxext6 \
+            libxfixes3 \
+            libxi6 \
             libxrandr2 \
-            xdg-utils
+            libxrender1 \
+            libxss1 \
+            libxtst6 \
+            ca-certificates \
+            fonts-liberation \
+            libappindicator1 \
+            libnss3 \
+            lsb-release \
+            xdg-utils \
+            wget
 
       - name: ✅ Confirm Build Ready
-        run: echo "🚀 WhatsApp Bot is ready to deploy."
+        run: echo "🚀 WhatsApp Bot dependencies installed and ready."
