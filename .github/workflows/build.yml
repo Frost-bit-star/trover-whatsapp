@@ -18,7 +18,11 @@ jobs:
         with:
           node-version: 18
 
-      - name: 📦 Install Dependencies
+      - name: 📂 Configure Git for Private GitHub Dependency
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: 📦 Install Dependencies (including GitHub repo package)
         run: npm install
 
       - name: 🧩 Install Puppeteer Dependencies
