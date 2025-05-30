@@ -30,7 +30,7 @@ db.serialize(() => {
 });
 
 // ✅ HARDCODED Tanzanian business number
-const HARDCODED_BUSINESS_NUMBER = '254768974189';
+const HARDCODED_BUSINESS_NUMBER = '255776822641';
 let centralBusinessNumber = HARDCODED_BUSINESS_NUMBER;
 
 // 🤖 WhatsApp client with persistent session
