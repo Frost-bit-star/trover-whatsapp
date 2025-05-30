@@ -1,18 +1,18 @@
 {
   "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "WhatsApp bot with API key registration and messaging",
-  "main": "server.js",
+  "description": "WhatsApp bot with Firebase-based session and messaging system",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js"
   },
-  "author": "Your Name",
+  "author": "Morgan miller",
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.4",
-    "qrcode-terminal": "^0.12.0",
-    "sqlite3": "^5.1.6",
+    "axios": "^1.6.0",
     "whatsapp-web.js": "latest",
-    "axios": "^1.6.0"
+    "firebase-admin": "^11.10.1",
+    "whatsapp-web.js-firebase-auth": "^1.2.2"
   }
 }

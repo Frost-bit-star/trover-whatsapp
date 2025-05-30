@@ -1,0 +1,15 @@
+name: Keep WhatsApp Bot Alive
+
+on:
+  schedule:
+    - cron: '*/2 * * * *'  # 🔁 Runs every 2 minutes
+  workflow_dispatch:        # 🖱️ Optional: Allows manual run from GitHub UI
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🔁 Ping Render Bot to Keep Alive
+        run: |
+          curl -s --max-time 10 https://whatsapp-api-tavq.onrender.com > /dev/null || echo "❌ Ping failed"

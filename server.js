@@ -1,73 +1,54 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, MessageMedia } = require('whatsapp-web.js');
+const { FirebaseStore } = require('whatsapp-web.js-firebase-auth');
+const admin = require('firebase-admin');
 const express = require('express');
 const axios = require('axios');
-const fs = require('fs');
-const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
+
+const serviceAccount = require('./whatsapp-bot-92217-firebase-adminsdk-fbsvc-093a5ba4fd.json');
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+const db = admin.firestore();
+const store = new FirebaseStore(db, {
+  collectionPath: 'wweb-sessions',
+  sessionId: 'trover-bot-session'
+});
 
 const app = express();
 app.use(express.json());
 
-// 🔌 Initialize SQLite DB
-const dbPath = path.join(__dirname, 'botdata.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) console.error("❌ Failed to connect to database", err);
-  else console.log("✅ SQLite database connected");
-});
-
-// 🧱 Create tables if they don't exist
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    number TEXT UNIQUE,
-    apiKey TEXT
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT
-  )`);
-});
-
-// ✅ HARDCODED Tanzanian business number
-const HARDCODED_BUSINESS_NUMBER = '255776822641';
+const HARDCODED_BUSINESS_NUMBER = '255776822641'; // ← Set your number
 let centralBusinessNumber = HARDCODED_BUSINESS_NUMBER;
 
-// 🤖 WhatsApp client with persistent session
 const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: './session' }),
+  authStrategy: store,
   puppeteer: {
     headless: true,
     args: ['--no-sandbox']
   }
 });
 
-// ✅ Save business number to DB
-function registerHardcodedNumber() {
-  db.run(
-    `INSERT OR REPLACE INTO settings (key, value) VALUES ('centralNumber', ?)`,
-    [centralBusinessNumber],
-    (err) => {
-      if (err) console.error('❌ DB Save Error:', err);
-      else console.log(`✅ Business number registered: ${centralBusinessNumber}`);
-    }
-  );
+// 🔐 Register business number and session
+async function registerHardcodedNumber() {
+  await db.collection('settings').doc('centralNumber').set({
+    value: centralBusinessNumber
+  });
+
+  await db.collection('sessions').doc('trover-bot-session').set({
+    businessNumber: centralBusinessNumber,
+    sessionId: 'trover-bot-session',
+    timestamp: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  console.log(`✅ Business number registered: ${centralBusinessNumber}`);
 }
 
-// Check if session already exists
-const sessionExists = fs.existsSync('./session/Default/Local Storage/leveldb');
-
-// 🔌 Initialize and handle first-time pairing
-client.initialize().then(async () => {
-  if (!sessionExists) {
-    try {
-      const code = await client.requestPairingCode(centralBusinessNumber);
-      console.log(`🔗 Pairing code (8-digit): ${code}`);
-    } catch (err) {
-      console.error('❌ Failed to generate pairing code:', err);
-    }
-  }
-});
+// Initialize WhatsApp
+client.initialize();
 
 client.on('ready', () => {
   console.log('✅ WhatsApp bot is ready and online!');
@@ -86,7 +67,7 @@ client.on('disconnected', reason => {
   console.log('⚠️ WhatsApp disconnected:', reason);
 });
 
-// 💬 Message handling
+// 📩 Message handler
 client.on('message', async msg => {
   const senderNumber = msg.from.split('@')[0];
   const text = msg.body.trim().toLowerCase();
@@ -101,39 +82,40 @@ client.on('message', async msg => {
 
   if (text.includes("allow me")) {
     const apiKey = generate8DigitCode();
-    db.run(
-      `INSERT OR REPLACE INTO users (number, apiKey) VALUES (?, ?)`,
-      [senderNumber, apiKey],
-      async err => {
-        if (!err) {
-          await client.sendMessage(msg.from,
-            `✅ You're activated!\n\n🔑 API Key: *${apiKey}*\n\nUse it at:\nhttps://trover.42web.io/devs.php`
-          );
-        } else {
-          console.error('DB Insert Error:', err);
-        }
-      }
+
+    const userData = {
+      apiKey,
+      registeredAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    await db.collection('users').doc(senderNumber).set(userData);
+    await db.collection('registered_users').doc(senderNumber).set(userData);
+
+    await client.sendMessage(msg.from,
+      `✅ You're activated!\n\n🔑 API Key: *${apiKey}*\n\nUse it at:\nhttps://trover.42web.io/devs.php`
     );
+    console.log(`✅ New user registered: ${senderNumber}`);
     return;
   }
 
   if (text.includes("recover apikey")) {
-    db.get(
-      `SELECT apiKey FROM users WHERE number = ?`,
-      [senderNumber],
-      async (err, row) => {
-        if (err) {
-          console.error('DB Fetch Error:', err);
-          return await client.sendMessage(msg.from, "❌ Error accessing your data.");
-        }
+    const usersDoc = await db.collection('users').doc(senderNumber).get();
 
-        if (row) {
-          await client.sendMessage(msg.from, `🔐 Your existing API Key: *${row.apiKey}*`);
-        } else {
-          await client.sendMessage(msg.from, `⚠️ No API key found. Send *allow me* to get one.`);
-        }
+    if (usersDoc.exists) {
+      const apiKey = usersDoc.data().apiKey;
+      await client.sendMessage(msg.from, `🔐 Your saved API Key is:\n*${apiKey}*`);
+      console.log(`✅ API key recovered for ${senderNumber}`);
+    } else {
+      const fallbackDoc = await db.collection('registered_users').doc(senderNumber).get();
+      if (fallbackDoc.exists) {
+        const apiKey = fallbackDoc.data().apiKey;
+        await client.sendMessage(msg.from, `🔐 Your saved API Key is:\n*${apiKey}*`);
+        console.log(`✅ API key recovered from fallback for ${senderNumber}`);
+      } else {
+        await client.sendMessage(msg.from, `⚠️ No API key found. Send *allow me* to register.`);
+        console.log(`❌ No API key found for ${senderNumber}`);
       }
-    );
+    }
     return;
   }
 
@@ -156,51 +138,68 @@ client.on('message', async msg => {
   }
 });
 
-// 🛰️ REST API to send messages
+// 🛰️ API to send messages
 app.post('/api/send', async (req, res) => {
   const { apikey, message, mediaUrl, caption } = req.body;
-
-  if (!centralBusinessNumber) {
-    return res.status(500).send("Bot is not linked to a business number.");
-  }
 
   if (!apikey || (!message && !mediaUrl)) {
     return res.status(400).send("Missing API key or message/mediaUrl");
   }
 
-  db.get(`SELECT number FROM users WHERE apiKey = ?`, [apikey], async (err, row) => {
-    if (err) {
-      console.error('DB Select Error:', err);
-      return res.status(500).send("Database error");
-    }
+  try {
+    const userQuery = await db.collection('users').where('apiKey', '==', apikey).limit(1).get();
 
-    if (!row) {
+    if (userQuery.empty) {
       return res.status(401).send("Invalid API key");
     }
 
-    const chatId = `${row.number}@c.us`;
+    const userDoc = userQuery.docs[0];
+    const number = userDoc.id;
+    const chatId = `${number}@c.us`;
 
-    try {
-      if (mediaUrl) {
-        const media = await MessageMedia.fromUrl(mediaUrl);
-        await client.sendMessage(chatId, media, { caption });
-      } else {
-        await client.sendMessage(chatId, message);
-      }
-
-      res.send("✅ Message sent from business number");
-    } catch (e) {
-      console.error('Send Error:', e);
-      res.status(500).send("❌ Failed to send message");
+    if (mediaUrl) {
+      const media = await MessageMedia.fromUrl(mediaUrl);
+      await client.sendMessage(chatId, media, { caption });
+    } else {
+      await client.sendMessage(chatId, message);
     }
-  });
+
+    res.send("✅ Message sent from business number");
+  } catch (e) {
+    console.error('Send Error:', e);
+    res.status(500).send("❌ Failed to send message");
+  }
+});
+
+// 📡 API endpoint for "sell ping"
+app.post('/api/sell-ping', async (req, res) => {
+  const { storeName, customerNumber } = req.body;
+
+  if (!storeName || !customerNumber) {
+    return res.status(400).send("Missing storeName or customerNumber");
+  }
+
+  const message = `🔔 Ping from ${storeName}: A customer is trying to connect. Call or message them at ${customerNumber}.`;
+
+  try {
+    await client.sendMessage(`${centralBusinessNumber}@c.us`, message);
+    res.send("✅ Ping sent to business number");
+  } catch (e) {
+    console.error('Ping Error:', e);
+    res.status(500).send("❌ Failed to send ping");
+  }
+});
+
+// 🔌 Ping endpoint (for uptime cron)
+app.get('/ping', (req, res) => {
+  res.send('✅ Bot is running!');
 });
 
 app.listen(3000, () => {
   console.log('🚀 Server running on port 3000');
 });
 
-// 🔢 Generate 8-digit code
+// 🔢 Utility: Generate 8-digit API key
 function generate8DigitCode() {
   return Math.floor(10000000 + Math.random() * 90000000).toString();
 }
