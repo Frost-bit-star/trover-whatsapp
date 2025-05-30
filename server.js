@@ -1,15 +1,39 @@
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const express = require('express');
 const axios = require('axios');
-const db = require('./db');
+const fs = require('fs');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
 
 const app = express();
 app.use(express.json());
 
-// ✅ HARDCODED Tanzanian business number in international format (without +)
+// 🔌 Initialize SQLite DB
+const dbPath = path.join(__dirname, 'botdata.db');
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) console.error("❌ Failed to connect to database", err);
+  else console.log("✅ SQLite database connected");
+});
+
+// 🧱 Create tables if they don't exist
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number TEXT UNIQUE,
+    apiKey TEXT
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  )`);
+});
+
+// ✅ HARDCODED Tanzanian business number
 const HARDCODED_BUSINESS_NUMBER = '255776822641';
 let centralBusinessNumber = HARDCODED_BUSINESS_NUMBER;
 
+// 🤖 WhatsApp client with persistent session
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './session' }),
   puppeteer: {
@@ -18,36 +42,51 @@ const client = new Client({
   }
 });
 
-// ✅ Save hardcoded number to DB
+// ✅ Save business number to DB
 function registerHardcodedNumber() {
   db.run(
     `INSERT OR REPLACE INTO settings (key, value) VALUES ('centralNumber', ?)`,
     [centralBusinessNumber],
     (err) => {
-      if (err) console.error('DB Save Error:', err);
+      if (err) console.error('❌ DB Save Error:', err);
       else console.log(`✅ Business number registered: ${centralBusinessNumber}`);
     }
   );
 }
 
-// Generate pairing code after client is ready
-client.on('ready', async () => {
-  console.log('✅ WhatsApp bot is ready!');
-  registerHardcodedNumber();
-  await generateAndStorePairingCode();
+// Check if session already exists
+const sessionExists = fs.existsSync('./session/Default/Local Storage/leveldb');
+
+// 🔌 Initialize and handle first-time pairing
+client.initialize().then(async () => {
+  if (!sessionExists) {
+    try {
+      const code = await client.requestPairingCode(centralBusinessNumber);
+      console.log(`🔗 Pairing code (8-digit): ${code}`);
+    } catch (err) {
+      console.error('❌ Failed to generate pairing code:', err);
+    }
+  }
 });
 
-// Generate and store pairing code
-async function generateAndStorePairingCode() {
-  try {
-    const code = await client.requestPairingCode(centralBusinessNumber);
-    console.log('Pairing code:', code);
-    // Store the pairing code in the database if needed
-  } catch (err) {
-    console.error('Error generating pairing code:', err);
-  }
-}
+client.on('ready', () => {
+  console.log('✅ WhatsApp bot is ready and online!');
+  registerHardcodedNumber();
+});
 
+client.on('authenticated', () => {
+  console.log('🔐 Authenticated with WhatsApp');
+});
+
+client.on('auth_failure', msg => {
+  console.error('❌ Authentication failed:', msg);
+});
+
+client.on('disconnected', reason => {
+  console.log('⚠️ WhatsApp disconnected:', reason);
+});
+
+// 💬 Message handling
 client.on('message', async msg => {
   const senderNumber = msg.from.split('@')[0];
   const text = msg.body.trim().toLowerCase();
@@ -56,12 +95,10 @@ client.on('message', async msg => {
     return await client.sendMessage(msg.from, `🚫 Bot is not activated.`);
   }
 
-  // ✅ Only allow communication with the business number
   if (msg.to !== `${centralBusinessNumber}@c.us` && senderNumber !== centralBusinessNumber) {
     return await client.sendMessage(msg.from, `🚫 You can only communicate with the business number.`);
   }
 
-  // Handle activation
   if (text.includes("allow me")) {
     const apiKey = generate8DigitCode();
     db.run(
@@ -80,7 +117,6 @@ client.on('message', async msg => {
     return;
   }
 
-  // Handle API key recovery
   if (text.includes("recover apikey")) {
     db.get(
       `SELECT apiKey FROM users WHERE number = ?`,
@@ -101,7 +137,7 @@ client.on('message', async msg => {
     return;
   }
 
-  // AI fallback
+  // Fallback to AI
   try {
     const aiResponse = await axios.post(
       'https://troverstarapiai.vercel.app/api/chat',
@@ -120,7 +156,7 @@ client.on('message', async msg => {
   }
 });
 
-// ✅ REST API for sending messages
+// 🛰️ REST API to send messages
 app.post('/api/send', async (req, res) => {
   const { apikey, message, mediaUrl, caption } = req.body;
 
@@ -160,5 +196,11 @@ app.post('/api/send', async (req, res) => {
   });
 });
 
-client.initialize();
-app.listen(3000, () => console.log('🚀 Server running on port 3000'));
+app.listen(3000, () => {
+  console.log('🚀 Server running on port 3000');
+});
+
+// 🔢 Generate 8-digit code
+function generate8DigitCode() {
+  return Math.floor(10000000 + Math.random() * 90000000).toString();
+}
