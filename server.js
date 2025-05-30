@@ -1,6 +1,6 @@
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const express = require('express');
-const QRCode = require('qrcode');
+const axios = require('axios');
 const db = require('./db');
 
 const app = express();
@@ -8,20 +8,15 @@ app.use(express.json());
 
 const BUSINESS_REGISTRATION_CODE = '87654321';
 let centralBusinessNumber = null;
-let latestQR = null;
 
-// ✅ Use persistent session directory (Render-compatible)
 const client = new Client({
-  authStrategy: new LocalAuth({
-    dataPath: '/data/session' // Ensure this is persistent on Render
-  }),
+  authStrategy: new LocalAuth({ dataPath: './session' }),
   puppeteer: {
     headless: true,
     args: ['--no-sandbox']
   }
 });
 
-// Load central number from DB if already saved
 function loadCentralNumber() {
   db.get(`SELECT value FROM settings WHERE key = 'centralNumber'`, [], (err, row) => {
     if (!err && row) {
@@ -31,7 +26,6 @@ function loadCentralNumber() {
   });
 }
 
-// Save central number to DB
 function saveCentralNumber(number) {
   db.run(
     `INSERT OR REPLACE INTO settings (key, value) VALUES ('centralNumber', ?)`,
@@ -43,11 +37,8 @@ function saveCentralNumber(number) {
   );
 }
 
-// Show QR code in logs and store latest QR
 client.on('qr', qr => {
-  latestQR = qr;
-  console.log('📲 Scan this QR to link WhatsApp:');
-  console.log(qr);
+  console.log('📲 Scan this QR to link WhatsApp:\n', qr);
 });
 
 client.on('ready', () => {
@@ -55,12 +46,10 @@ client.on('ready', () => {
   loadCentralNumber();
 });
 
-// Generate 8-digit API key
 function generate8DigitCode() {
   return Math.floor(10000000 + Math.random() * 90000000).toString();
 }
 
-// Message listener
 client.on('message', async msg => {
   const senderNumber = msg.from.split('@')[0];
   const text = msg.body.trim().toLowerCase();
@@ -72,15 +61,17 @@ client.on('message', async msg => {
     return await client.sendMessage(msg.from, `✅ This number has been successfully linked as the business sender!`);
   }
 
+  // Block usage if central number not linked
   if (!centralBusinessNumber) {
     return await client.sendMessage(msg.from, `🚫 Bot not activated. Send *link ${BUSINESS_REGISTRATION_CODE}* to activate.`);
   }
 
+  // Only allow chat between users and business number
   if (msg.to !== `${centralBusinessNumber}@c.us` && senderNumber !== centralBusinessNumber) {
     return await client.sendMessage(msg.from, `🚫 You can only communicate with the business number.`);
   }
 
-  // Allow registration
+  // Handle "allow me"
   if (text.includes("allow me")) {
     const apiKey = generate8DigitCode();
     db.run(
@@ -89,17 +80,18 @@ client.on('message', async msg => {
       async err => {
         if (!err) {
           await client.sendMessage(msg.from,
-            `✅ You're activated!\n\n🔑 API Key: *${apiKey}*\n\nUse it at:\nhttps://yourdomain.com/api/send`
+            `✅ You're activated!\n\n🔑 API Key: *${apiKey}*\n\nUse it at:\nhttps://trover.42web.io/devs.php`
           );
         } else {
           console.error('DB Insert Error:', err);
         }
       }
     );
+    return;
   }
 
-  // Recover API key
-  else if (text.includes("recover apikey")) {
+  // Handle "recover apikey"
+  if (text.includes("recover apikey")) {
     db.get(
       `SELECT apiKey FROM users WHERE number = ?`,
       [senderNumber],
@@ -110,16 +102,31 @@ client.on('message', async msg => {
         }
 
         if (row) {
-          await client.sendMessage(msg.from,
-            `🔐 Your existing API Key: *${row.apiKey}*`
-          );
+          await client.sendMessage(msg.from, `🔐 Your existing API Key: *${row.apiKey}*`);
         } else {
-          await client.sendMessage(msg.from,
-            `⚠️ No API key found. Send *allow me* to get one.`
-          );
+          await client.sendMessage(msg.from, `⚠️ No API key found. Send *allow me* to get one.`);
         }
       }
     );
+    return;
+  }
+
+  // 🤖 Forward message to AI if not one of the above
+  try {
+    const aiResponse = await axios.post(
+      'https://troverstarapiai.vercel.app/api/chat',
+      {
+        messages: [{ role: "user", content: msg.body }],
+        model: "gpt-3.5-turbo"
+      },
+      { headers: { "Content-Type": "application/json" } }
+    );
+
+    const aiReply = aiResponse.data?.response?.content || "🤖 Sorry, I couldn't understand that.";
+    await client.sendMessage(msg.from, aiReply);
+  } catch (error) {
+    console.error("AI Request Failed:", error.message);
+    await client.sendMessage(msg.from, "❌ AI service unavailable. Try again later.");
   }
 });
 
@@ -161,25 +168,6 @@ app.post('/api/send', async (req, res) => {
       res.status(500).send("❌ Failed to send message");
     }
   });
-});
-
-// 🖼 Serve the QR Code as a web page
-app.get('/qr', async (req, res) => {
-  if (!latestQR) return res.status(404).send("QR code not generated yet");
-  try {
-    const dataUrl = await QRCode.toDataURL(latestQR);
-    res.send(`
-      <html>
-        <head><title>Scan WhatsApp QR</title></head>
-        <body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;">
-          <h2>📲 Scan to Link WhatsApp</h2>
-          <img src="${dataUrl}" />
-        </body>
-      </html>
-    `);
-  } catch (err) {
-    res.status(500).send("Error generating QR code");
-  }
 });
 
 client.initialize();
