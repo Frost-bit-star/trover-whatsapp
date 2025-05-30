@@ -2,6 +2,7 @@ const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const express = require('express');
 const axios = require('axios');
 const db = require('./db');
+const qrcodeTerminal = require('qrcode-terminal'); // ✅ ADDED QR Terminal
 
 const app = express();
 app.use(express.json());
@@ -37,8 +38,10 @@ function saveCentralNumber(number) {
   );
 }
 
+// ✅ Updated QR code handler to generate terminal QR
 client.on('qr', qr => {
-  console.log('📲 Scan this QR to link WhatsApp:\n', qr);
+  console.log('📲 Scan this QR code to link WhatsApp:\n');
+  qrcodeTerminal.generate(qr, { small: true });
 });
 
 client.on('ready', () => {
