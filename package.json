@@ -2,10 +2,9 @@
   "name": "whatsapp-bot",
   "version": "1.0.0",
   "description": "WhatsApp bot using whatsapp-web.js with numeric pairing and session export",
-  "main": "index.js",
-  "type": "module",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js"
   },
   "keywords": [
     "whatsapp",
