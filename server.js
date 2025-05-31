@@ -1,7 +1,11 @@
+const express = require('express');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const chromium = require('@sparticuz/chromium');
 const fs = require('fs');
 const path = require('path');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
 
 // Raw session key (e.g., phone number)
 const rawSessionKey = '+255776822641';
@@ -33,8 +37,9 @@ console.log(`🆔 Using clientId: ${sessionKey}`);
     
     try {
       const sessionData = fs.readFileSync(sessionPath, 'utf-8');
-      console.log('📦 FULL SESSION DATA:');
+      console.log('\n🔒 ====== WHATSAPP SESSION (creds.json) ======');
       console.log(sessionData);
+      console.log('🔒 ====== END OF SESSION DATA ======\n');
     } catch (err) {
       console.error('❌ Could not read session file:', err);
     }
@@ -56,3 +61,12 @@ console.log(`🆔 Using clientId: ${sessionKey}`);
 
   await client.initialize();
 })();
+
+// Start Express server to satisfy Render's port requirement
+app.get('/', (req, res) => {
+  res.send(`✅ WhatsApp bot is running for ${sessionKey}`);
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Express server listening on port ${PORT}`);
+});
