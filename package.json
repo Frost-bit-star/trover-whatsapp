@@ -2,10 +2,10 @@
   "name": "troverstar-whatsapp-bot",
   "version": "1.2.0",
   "description": "Troverstar WhatsApp bot with Supabase PostgreSQL integration and smart messaging system",
-  "main": "session.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node session.js",
-    "dev": "nodemon session.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "author": "Morgan Miller",
   "license": "MIT",
