@@ -11,10 +11,8 @@ const STORAGE_DIR = './storage';
 const SESSION_DIR = `${STORAGE_DIR}/session`;
 const DB_PATH = `${STORAGE_DIR}/database.sqlite`;
 
-// Ensure storage directory exists
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR);
 
-// SQLite DB setup
 const db = new sqlite3.Database(DB_PATH, err => {
   if (err) return console.error('❌ DB Error:', err);
   console.log('📦 SQLite DB connected');
@@ -31,12 +29,10 @@ const db = new sqlite3.Database(DB_PATH, err => {
 const BUSINESS_NUMBER = '255776822641';
 let client;
 
-// Generate 8-character alphanumeric API key
 function generateApiKey() {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
 
-// Register business number in DB
 function registerBusinessNumber() {
   db.run(
     `INSERT OR REPLACE INTO settings (key, value) VALUES ('centralNumber', ?)`,
@@ -47,11 +43,26 @@ function registerBusinessNumber() {
   );
 }
 
-// Create or restart the WhatsApp client
 function initializeClient() {
   client = new Client({
     authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
-    puppeteer: { headless: true, args: ['--no-sandbox'] }
+    puppeteer: {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ]
+    }
+  });
+
+  client.on('qr', qr => {
+    console.log('📸 QR Code generated. Open WhatsApp > Settings > Linked Devices and scan.');
   });
 
   client.on('ready', async () => {
@@ -65,25 +76,31 @@ function initializeClient() {
       console.log('✅ Already paired, no new pairing code needed.');
     }
 
-    // Log current session files for manual backup
     const files = fs.readdirSync(SESSION_DIR, { withFileTypes: true });
     console.log('📁 Session files:\n' + files.map(f => `- ${f.name}`).join('\n'));
   });
 
   client.on('auth_failure', async msg => {
-    console.error('❌ Authentication failed. Resetting session and restarting...');
+    console.error('❌ Authentication failed. Resetting session...');
 
     try {
       fs.rmSync(SESSION_DIR, { recursive: true, force: true });
       console.log('🗑️ Session directory deleted.');
 
       await client.destroy();
-      console.log('♻️ Client destroyed. Re-initializing...');
-      initializeClient();
-      client.initialize();
+      console.log('♻️ Client destroyed. Restarting...');
+      initializeClient(); // Restart cleanly
     } catch (err) {
       console.error('❌ Error during session reset:', err);
     }
+  });
+
+  client.on('disconnected', reason => {
+    console.warn(`🔌 Disconnected: ${reason}`);
+  });
+
+  client.on('loading_screen', (percent, message) => {
+    console.log(`⏳ Loading: ${percent}% - ${message}`);
   });
 
   client.on('message', async msg => {
@@ -92,7 +109,6 @@ function initializeClient() {
 
     if (sender === BUSINESS_NUMBER) return;
 
-    // Register API key
     if (body.includes('allow me')) {
       const apiKey = generateApiKey();
       db.run(
@@ -107,7 +123,6 @@ function initializeClient() {
       return;
     }
 
-    // Recover API key
     if (body.includes('recover apikey')) {
       db.get(`SELECT apiKey FROM users WHERE number = ?`, [sender], async (err, row) => {
         if (row) {
@@ -119,7 +134,6 @@ function initializeClient() {
       return;
     }
 
-    // AI fallback
     try {
       const ai = await axios.post('https://troverstarapiai.vercel.app/api/chat', {
         messages: [{ role: 'user', content: msg.body }],
@@ -135,10 +149,9 @@ function initializeClient() {
   client.initialize();
 }
 
-// HTTP API to send messages
+// HTTP API
 app.post('/api/send', async (req, res) => {
   const { apikey, message, mediaUrl, caption } = req.body;
-
   if (!apikey || (!message && !mediaUrl)) {
     return res.status(400).send('Missing API key or message/media.');
   }
@@ -161,6 +174,5 @@ app.post('/api/send', async (req, res) => {
   });
 });
 
-// Start the app and initialize WhatsApp client
 app.listen(3000, () => console.log('🚀 Server running at http://localhost:3000'));
 initializeClient();
