@@ -2,7 +2,7 @@
   "name": "troverstar-whatsapp-bot",
   "version": "1.2.0",
   "description": "Troverstar WhatsApp bot with Supabase PostgreSQL integration and smart messaging system",
-  "main": "server.js",
+  "main": "session.js",
   "scripts": {
     "start": "node session.js",
     "dev": "nodemon session.js"
