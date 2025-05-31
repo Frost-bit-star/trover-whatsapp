@@ -272,3 +272,9 @@ app.get('/ping', (req, res) => {
 app.listen(3000, async () => {
   await initializeDatabase();
   console.log('🚀 Server running on port 3000');
+});
+
+// Helper function to generate 8 digit code
+function generate8DigitCode() {
+  return Math.floor(10000000 + Math.random() * 90000000).toString();
+}
