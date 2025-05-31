@@ -9,11 +9,8 @@ const PORT = process.env.PORT || 3000;
 
 // Raw session key (e.g., phone number)
 const rawSessionKey = '+255776822641';
-
-// Sanitize clientId to allow only alphanumeric, underscores, and hyphens
 const sessionKey = rawSessionKey.replace(/[^a-zA-Z0-9_-]/g, '');
 
-// Log the final clientId for debugging
 console.log(`🆔 Using clientId: ${sessionKey}`);
 
 (async () => {
@@ -22,8 +19,15 @@ console.log(`🆔 Using clientId: ${sessionKey}`);
     puppeteer: {
       executablePath: await chromium.executablePath(),
       headless: chromium.headless,
-      args: chromium.args,
+      args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox']
     }
+  });
+
+  // 🔑 SHOW QR CODE FOR PAIRING
+  client.on('qr', qr => {
+    console.log('\n📷 WhatsApp QR Code (scan this with your phone):');
+    console.log(qr);
+    console.log('\n📱 Open WhatsApp > Linked Devices > Scan QR Code');
   });
 
   client.on('ready', () => {
@@ -34,7 +38,6 @@ console.log(`🆔 Using clientId: ${sessionKey}`);
     console.log(`🔐 Successfully authenticated for number: ${sessionKey}`);
 
     const sessionPath = path.join('.wwebjs_auth', `session-${sessionKey}`, 'creds.json');
-    
     try {
       const sessionData = fs.readFileSync(sessionPath, 'utf-8');
       console.log('\n🔒 ====== WHATSAPP SESSION (creds.json) ======');
@@ -54,7 +57,7 @@ console.log(`🆔 Using clientId: ${sessionKey}`);
     process.exit(0);
   });
 
-  client.on('pairing-code', (code) => {
+  client.on('pairing-code', code => {
     console.log(`🔑 Real WhatsApp Pairing Code: ${code}`);
     console.log('📱 Go to WhatsApp > Linked Devices > Use Pairing Code.');
   });
@@ -62,7 +65,7 @@ console.log(`🆔 Using clientId: ${sessionKey}`);
   await client.initialize();
 })();
 
-// Start Express server to satisfy Render's port requirement
+// 🌐 Express server to satisfy Render port binding
 app.get('/', (req, res) => {
   res.send(`✅ WhatsApp bot is running for ${sessionKey}`);
 });
