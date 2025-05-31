@@ -12,7 +12,6 @@ const STORAGE_DIR = './storage';
 const SESSION_DIR = `${STORAGE_DIR}/session`;
 const DB_PATH = `${STORAGE_DIR}/database.sqlite`;
 
-// Ensure storage directories exist
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR);
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR);
 
@@ -61,24 +60,24 @@ function initializeClient() {
 
   let pairingMessageShown = false;
 
-  client.on('qr', qr => {
+  client.on('qr', async qr => {
     console.log('📸 QR Code generated.');
     if (!pairingMessageShown) {
       pairingMessageShown = true;
       console.log('📲 Open WhatsApp > Settings > Linked Devices and scan the QR code to connect.');
+    }
+
+    try {
+      const code = await client.requestPairingCode(BUSINESS_NUMBER);
+      console.log(`🔑 Pairing Code: ${code}`);
+    } catch (err) {
+      console.log('⚠️ Failed to generate pairing code. Possibly already paired.');
     }
   });
 
   client.on('ready', async () => {
     console.log('✅ WhatsApp bot is ready');
     registerBusinessNumber();
-
-    try {
-      const code = await client.requestPairingCode(BUSINESS_NUMBER);
-      console.log(`🔑 Pairing Code: ${code}`);
-    } catch {
-      console.log('✅ Already paired, no new pairing code needed.');
-    }
 
     const files = fs.readdirSync(SESSION_DIR, { withFileTypes: true });
     console.log('📁 Session files:\n' + files.map(f => `- ${f.name}`).join('\n'));
