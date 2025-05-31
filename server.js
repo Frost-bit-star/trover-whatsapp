@@ -8,14 +8,14 @@ const path = require('path');
 const app = express();
 app.use(express.json());
 
-// 🔌 Initialize SQLite DB
+// Initialize SQLite DB
 const dbPath = path.join(__dirname, 'botdata.db');
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) console.error("❌ Failed to connect to database", err);
   else console.log("✅ SQLite database connected");
 });
 
-// 🧱 Create tables if they don't exist
+// Create tables if not exist
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,11 +29,11 @@ db.serialize(() => {
   )`);
 });
 
-// ✅ HARDCODED Tanzanian business number
+// Hardcoded Tanzanian business number
 const HARDCODED_BUSINESS_NUMBER = '255776822641';
 let centralBusinessNumber = HARDCODED_BUSINESS_NUMBER;
 
-// 🔐 HARDCODED session
+// Hardcoded session object for LegacySessionAuth
 const session = {
   WABrowserId: "\"weghqRwmd1gKtw==\"",
   WASecretBundle: {
@@ -44,7 +44,7 @@ const session = {
   WAToken2: "\"1@+rZzFSKuKZ7yM3z3ZUBUL+NWKvyaPoULj8K0zOfvg+axbg==\""
 };
 
-// 🤖 WhatsApp client using hardcoded session
+// WhatsApp client using LegacySessionAuth
 const client = new Client({
   authStrategy: new LegacySessionAuth({ session }),
   puppeteer: {
@@ -53,7 +53,6 @@ const client = new Client({
   }
 });
 
-// ✅ Save business number to DB
 function registerHardcodedNumber() {
   db.run(
     `INSERT OR REPLACE INTO settings (key, value) VALUES ('centralNumber', ?)`,
@@ -65,7 +64,6 @@ function registerHardcodedNumber() {
   );
 }
 
-// 🔌 Initialize client
 client.initialize();
 
 client.on('ready', () => {
@@ -85,17 +83,18 @@ client.on('disconnected', reason => {
   console.log('⚠️ WhatsApp disconnected:', reason);
 });
 
-// 💬 Message handling
 client.on('message', async msg => {
   const senderNumber = msg.from.split('@')[0];
   const text = msg.body.trim().toLowerCase();
 
   if (!centralBusinessNumber) {
-    return await client.sendMessage(msg.from, `🚫 Bot is not activated.`);
+    await client.sendMessage(msg.from, `🚫 Bot is not activated.`);
+    return;
   }
 
   if (msg.to !== `${centralBusinessNumber}@c.us` && senderNumber !== centralBusinessNumber) {
-    return await client.sendMessage(msg.from, `🚫 You can only communicate with the business number.`);
+    await client.sendMessage(msg.from, `🚫 You can only communicate with the business number.`);
+    return;
   }
 
   if (text.includes("allow me")) {
@@ -104,13 +103,13 @@ client.on('message', async msg => {
       `INSERT OR REPLACE INTO users (number, apiKey) VALUES (?, ?)`,
       [senderNumber, apiKey],
       async err => {
-        if (!err) {
-          await client.sendMessage(msg.from,
-            `✅ You're activated!\n\n🔑 API Key: *${apiKey}*\n\nUse it at:\nhttps://trover.42web.io/devs.php`
-          );
-        } else {
+        if (err) {
           console.error('DB Insert Error:', err);
+          return;
         }
+        await client.sendMessage(msg.from,
+          `✅ You're activated!\n\n🔑 API Key: *${apiKey}*\n\nUse it at:\nhttps://trover.42web.io/devs.php`
+        );
       }
     );
     return;
@@ -123,7 +122,8 @@ client.on('message', async msg => {
       async (err, row) => {
         if (err) {
           console.error('DB Fetch Error:', err);
-          return await client.sendMessage(msg.from, "❌ Error accessing your data.");
+          await client.sendMessage(msg.from, "❌ Error accessing your data.");
+          return;
         }
 
         if (row) {
@@ -136,7 +136,7 @@ client.on('message', async msg => {
     return;
   }
 
-  // Fallback to AI
+  // Fallback AI response
   try {
     const aiResponse = await axios.post(
       'https://troverstarapiai.vercel.app/api/chat',
@@ -155,8 +155,8 @@ client.on('message', async msg => {
   }
 });
 
-// 🛰️ REST API to send messages
-app.post('/api/send', async (req, res) => {
+// REST API endpoint to send messages
+app.post('/api/send', (req, res) => {
   const { apikey, message, mediaUrl, caption } = req.body;
 
   if (!centralBusinessNumber) {
@@ -199,7 +199,6 @@ app.listen(3000, () => {
   console.log('🚀 Server running on port 3000');
 });
 
-// 🔢 Generate 8-digit code
 function generate8DigitCode() {
   return Math.floor(10000000 + Math.random() * 90000000).toString();
 }
