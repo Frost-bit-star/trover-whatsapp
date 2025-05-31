@@ -1,182 +1,150 @@
-const { Client, LegacySessionAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const express = require('express');
-const axios = require('axios');
-const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const fs = require('fs');
+const axios = require('axios');
 
 const app = express();
 app.use(express.json());
 
-// Initialize SQLite DB
-const dbPath = path.join(__dirname, 'botdata.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) console.error("❌ Failed to connect to database", err);
-  else console.log("✅ SQLite database connected");
-});
+const STORAGE_DIR = './storage';
+const SESSION_DIR = `${STORAGE_DIR}/session`;
+const DB_PATH = `${STORAGE_DIR}/database.sqlite`;
 
-// Create tables if not exist
-db.serialize(() => {
+// Ensure storage directory exists
+if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR);
+
+// SQLite DB setup
+const db = new sqlite3.Database(DB_PATH, err => {
+  if (err) return console.error('❌ DB Error:', err);
+  console.log('📦 SQLite DB connected');
   db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    number TEXT UNIQUE,
+    number TEXT PRIMARY KEY,
     apiKey TEXT
   )`);
-
   db.run(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
   )`);
 });
 
-// Hardcoded Tanzanian business number
-const HARDCODED_BUSINESS_NUMBER = '255776822641';
-let centralBusinessNumber = HARDCODED_BUSINESS_NUMBER;
+const BUSINESS_NUMBER = '255776822641';
+let client;
 
-// Hardcoded session object for LegacySessionAuth
-const session = {
-  WABrowserId: "\"weghqRwmd1gKtw==\"",
-  WASecretBundle: {
-    encKey: "6Z3PLN+H1xN5gz5+d6vWrgLMsZvBi4fjRP93iwFv/70=",
-    macKey: "CvJ9Xv4nyvO9INt9+h3ojvNT8G8G0P2HGLhKRoUMY2I="
-  },
-  WAToken1: "\"cHQ2i3mhvCkCChGP/yFa9ZKsyYjH1EGfc4p1apRy1uw=\"",
-  WAToken2: "\"1@+rZzFSKuKZ7yM3z3ZUBUL+NWKvyaPoULj8K0zOfvg+axbg==\""
-};
+// Generate 8-character alphanumeric API key
+function generateApiKey() {
+  return Math.random().toString(36).substring(2, 10).toUpperCase();
+}
 
-// WhatsApp client using LegacySessionAuth
-const client = new Client({
-  authStrategy: new LegacySessionAuth({ session }),
-  puppeteer: {
-    headless: true,
-    args: ['--no-sandbox']
-  }
-});
-
-function registerHardcodedNumber() {
+// Register business number in DB
+function registerBusinessNumber() {
   db.run(
     `INSERT OR REPLACE INTO settings (key, value) VALUES ('centralNumber', ?)`,
-    [centralBusinessNumber],
-    (err) => {
-      if (err) console.error('❌ DB Save Error:', err);
-      else console.log(`✅ Business number registered: ${centralBusinessNumber}`);
+    [BUSINESS_NUMBER],
+    err => {
+      if (!err) console.log(`✅ Registered business number: ${BUSINESS_NUMBER}`);
     }
   );
 }
 
-client.initialize();
+// Create or restart the WhatsApp client
+function initializeClient() {
+  client = new Client({
+    authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
+    puppeteer: { headless: true, args: ['--no-sandbox'] }
+  });
 
-client.on('ready', () => {
-  console.log('✅ WhatsApp bot is ready and online!');
-  registerHardcodedNumber();
-});
+  client.on('ready', async () => {
+    console.log('✅ WhatsApp bot is ready');
+    registerBusinessNumber();
 
-client.on('authenticated', () => {
-  console.log('🔐 Authenticated with WhatsApp');
-});
+    try {
+      const code = await client.requestPairingCode(BUSINESS_NUMBER);
+      console.log(`🔑 Pairing Code: ${code}`);
+    } catch {
+      console.log('✅ Already paired, no new pairing code needed.');
+    }
 
-client.on('auth_failure', msg => {
-  console.error('❌ Authentication failed:', msg);
-});
+    // Log current session files for manual backup
+    const files = fs.readdirSync(SESSION_DIR, { withFileTypes: true });
+    console.log('📁 Session files:\n' + files.map(f => `- ${f.name}`).join('\n'));
+  });
 
-client.on('disconnected', reason => {
-  console.log('⚠️ WhatsApp disconnected:', reason);
-});
+  client.on('auth_failure', async msg => {
+    console.error('❌ Authentication failed. Resetting session and restarting...');
 
-client.on('message', async msg => {
-  const senderNumber = msg.from.split('@')[0];
-  const text = msg.body.trim().toLowerCase();
+    try {
+      fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+      console.log('🗑️ Session directory deleted.');
 
-  if (!centralBusinessNumber) {
-    await client.sendMessage(msg.from, `🚫 Bot is not activated.`);
-    return;
-  }
+      await client.destroy();
+      console.log('♻️ Client destroyed. Re-initializing...');
+      initializeClient();
+      client.initialize();
+    } catch (err) {
+      console.error('❌ Error during session reset:', err);
+    }
+  });
 
-  if (msg.to !== `${centralBusinessNumber}@c.us` && senderNumber !== centralBusinessNumber) {
-    await client.sendMessage(msg.from, `🚫 You can only communicate with the business number.`);
-    return;
-  }
+  client.on('message', async msg => {
+    const sender = msg.from.split('@')[0];
+    const body = msg.body.trim().toLowerCase();
 
-  if (text.includes("allow me")) {
-    const apiKey = generate8DigitCode();
-    db.run(
-      `INSERT OR REPLACE INTO users (number, apiKey) VALUES (?, ?)`,
-      [senderNumber, apiKey],
-      async err => {
-        if (err) {
-          console.error('DB Insert Error:', err);
-          return;
+    if (sender === BUSINESS_NUMBER) return;
+
+    // Register API key
+    if (body.includes('allow me')) {
+      const apiKey = generateApiKey();
+      db.run(
+        `INSERT OR REPLACE INTO users (number, apiKey) VALUES (?, ?)`,
+        [sender, apiKey],
+        async err => {
+          if (!err) {
+            await client.sendMessage(msg.from, `✅ You're activated!\n\nAPI Key: *${apiKey}*\nUse it at: https://trover.42web.io/devs.php`);
+          }
         }
-        await client.sendMessage(msg.from,
-          `✅ You're activated!\n\n🔑 API Key: *${apiKey}*\n\nUse it at:\nhttps://trover.42web.io/devs.php`
-        );
-      }
-    );
-    return;
-  }
+      );
+      return;
+    }
 
-  if (text.includes("recover apikey")) {
-    db.get(
-      `SELECT apiKey FROM users WHERE number = ?`,
-      [senderNumber],
-      async (err, row) => {
-        if (err) {
-          console.error('DB Fetch Error:', err);
-          await client.sendMessage(msg.from, "❌ Error accessing your data.");
-          return;
-        }
-
+    // Recover API key
+    if (body.includes('recover apikey')) {
+      db.get(`SELECT apiKey FROM users WHERE number = ?`, [sender], async (err, row) => {
         if (row) {
-          await client.sendMessage(msg.from, `🔐 Your existing API Key: *${row.apiKey}*`);
+          await client.sendMessage(msg.from, `🔑 Your API Key: *${row.apiKey}*`);
         } else {
-          await client.sendMessage(msg.from, `⚠️ No API key found. Send *allow me* to get one.`);
+          await client.sendMessage(msg.from, `❌ Not found. Please send *allow me* to register.`);
         }
-      }
-    );
-    return;
-  }
+      });
+      return;
+    }
 
-  // Fallback AI response
-  try {
-    const aiResponse = await axios.post(
-      'https://troverstarapiai.vercel.app/api/chat',
-      {
-        messages: [{ role: "user", content: msg.body }],
-        model: "gpt-3.5-turbo"
-      },
-      { headers: { "Content-Type": "application/json" } }
-    );
+    // AI fallback
+    try {
+      const ai = await axios.post('https://troverstarapiai.vercel.app/api/chat', {
+        messages: [{ role: 'user', content: msg.body }],
+        model: 'gpt-3.5-turbo'
+      });
+      const reply = ai.data?.response?.content || '🤖 No response.';
+      await client.sendMessage(msg.from, reply);
+    } catch {
+      await client.sendMessage(msg.from, '🤖 AI service is unavailable.');
+    }
+  });
 
-    const aiReply = aiResponse.data?.response?.content || "🤖 Sorry, I couldn't understand that.";
-    await client.sendMessage(msg.from, aiReply);
-  } catch (error) {
-    console.error("AI Request Failed:", error.message);
-    await client.sendMessage(msg.from, "❌ AI service unavailable. Try again later.");
-  }
-});
+  client.initialize();
+}
 
-// REST API endpoint to send messages
-app.post('/api/send', (req, res) => {
+// HTTP API to send messages
+app.post('/api/send', async (req, res) => {
   const { apikey, message, mediaUrl, caption } = req.body;
 
-  if (!centralBusinessNumber) {
-    return res.status(500).send("Bot is not linked to a business number.");
-  }
-
   if (!apikey || (!message && !mediaUrl)) {
-    return res.status(400).send("Missing API key or message/mediaUrl");
+    return res.status(400).send('Missing API key or message/media.');
   }
 
   db.get(`SELECT number FROM users WHERE apiKey = ?`, [apikey], async (err, row) => {
-    if (err) {
-      console.error('DB Select Error:', err);
-      return res.status(500).send("Database error");
-    }
-
-    if (!row) {
-      return res.status(401).send("Invalid API key");
-    }
-
+    if (!row) return res.status(401).send('Invalid API key');
     const chatId = `${row.number}@c.us`;
 
     try {
@@ -186,19 +154,13 @@ app.post('/api/send', (req, res) => {
       } else {
         await client.sendMessage(chatId, message);
       }
-
-      res.send("✅ Message sent from business number");
-    } catch (e) {
-      console.error('Send Error:', e);
-      res.status(500).send("❌ Failed to send message");
+      res.send('✅ Message sent.');
+    } catch {
+      res.status(500).send('❌ Failed to send.');
     }
   });
 });
 
-app.listen(3000, () => {
-  console.log('🚀 Server running on port 3000');
-});
-
-function generate8DigitCode() {
-  return Math.floor(10000000 + Math.random() * 90000000).toString();
-}
+// Start the app and initialize WhatsApp client
+app.listen(3000, () => console.log('🚀 Server running at http://localhost:3000'));
+initializeClient();
