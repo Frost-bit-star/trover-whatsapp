@@ -1,4 +1,4 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LegacySessionAuth, MessageMedia } = require('whatsapp-web.js');
 const express = require('express');
 const axios = require('axios');
 const fs = require('fs');
@@ -33,9 +33,20 @@ db.serialize(() => {
 const HARDCODED_BUSINESS_NUMBER = '255776822641';
 let centralBusinessNumber = HARDCODED_BUSINESS_NUMBER;
 
-// 🤖 WhatsApp client with persistent session
+// 🔐 HARDCODED session
+const session = {
+  WABrowserId: "\"weghqRwmd1gKtw==\"",
+  WASecretBundle: {
+    encKey: "6Z3PLN+H1xN5gz5+d6vWrgLMsZvBi4fjRP93iwFv/70=",
+    macKey: "CvJ9Xv4nyvO9INt9+h3ojvNT8G8G0P2HGLhKRoUMY2I="
+  },
+  WAToken1: "\"cHQ2i3mhvCkCChGP/yFa9ZKsyYjH1EGfc4p1apRy1uw=\"",
+  WAToken2: "\"1@+rZzFSKuKZ7yM3z3ZUBUL+NWKvyaPoULj8K0zOfvg+axbg==\""
+};
+
+// 🤖 WhatsApp client using hardcoded session
 const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: './session' }),
+  authStrategy: new LegacySessionAuth({ session }),
   puppeteer: {
     headless: true,
     args: ['--no-sandbox']
@@ -54,20 +65,8 @@ function registerHardcodedNumber() {
   );
 }
 
-// ✅ Check if session already exists
-const sessionExists = fs.existsSync('./session/Default/Local Storage/leveldb');
-
-// 🔌 Initialize and handle first-time pairing
-client.initialize().then(async () => {
-  if (!sessionExists) {
-    try {
-      const code = await client.requestPairingCode(centralBusinessNumber);
-      console.log(`🔗 Pairing code (8-digit): ${code}`);
-    } catch (err) {
-      console.error('❌ Failed to generate pairing code:', err);
-    }
-  }
-});
+// 🔌 Initialize client
+client.initialize();
 
 client.on('ready', () => {
   console.log('✅ WhatsApp bot is ready and online!');
