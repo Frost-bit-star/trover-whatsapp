@@ -3,7 +3,7 @@ name: Build WhatsApp Bot
 on:
   push:
     branches:
-      - main  # or your default branch
+      - main  # Trigger build on push to main
 
 jobs:
   build:
@@ -18,18 +18,17 @@ jobs:
         with:
           node-version: 18
 
-      - name: 📂 Configure Git for Private GitHub Dependency
+      - name: 📂 Configure Git for GitHub Dependencies
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
 
-      - name: 📦 Install Dependencies (including GitHub repo package)
-        run: npm install || true
+      - name: 📦 Install Dependencies
+        run: npm install
 
-      - name: 🧩 Install Puppeteer Dependencies (conditionally)
-        if: always()
+      - name: 🧩 Install Puppeteer Dependencies (if required)
         run: |
           if grep -q puppeteer package.json; then
-            echo "🧩 Puppeteer detected. Installing system dependencies..."
+            echo "🧩 Installing system dependencies for Puppeteer..."
             sudo apt-get update && sudo apt-get install -y \
               gconf-service \
               libasound2 \
@@ -74,12 +73,5 @@ jobs:
           fi
         continue-on-error: true
 
-      - name: 🔥 Ensure Firebase is Installed
-        if: always()
-        run: |
-          echo "🔍 Checking Firebase tools..."
-          npm install firebase || true
-
       - name: ✅ Confirm Build Ready
-        if: always()
-        run: echo "🚀 WhatsApp Bot dependencies installed and build ready."
+        run: echo "🚀 WhatsApp Bot dependencies installed and ready for execution."
