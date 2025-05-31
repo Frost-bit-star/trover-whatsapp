@@ -1,16 +1,17 @@
+require('dotenv').config();
 const { Client: PgClient } = require('pg');
 const { Client, MessageMedia, LocalAuth } = require('whatsapp-web.js');
 const express = require('express');
 const axios = require('axios');
 
-// 🚨 Hardcoded Supabase/PostgreSQL credentials
+// PostgreSQL Client
 const db = new PgClient({
-  host: 'db.pnebwuryumfizcdswnya.supabase.co',
-  port: 5432,
-  database: 'postgres',
-  user: 'postgres',
-  password: '@@Morgan.123',
-  ssl: { rejectUnauthorized: false }
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
 });
 
 // Auto-create required tables
@@ -46,11 +47,10 @@ async function initializeDatabase() {
 const app = express();
 app.use(express.json());
 
-const HARDCODED_BUSINESS_NUMBER = '255776822641';
-let centralBusinessNumber = HARDCODED_BUSINESS_NUMBER;
+let centralBusinessNumber = process.env.BUSINESS_NUMBER;
 
 const client = new Client({
-  authStrategy: new LocalAuth({ clientId: 'trover-bot-session' }),
+  authStrategy: new LocalAuth({ clientId: process.env.WHATSAPP_SESSION_ID }),
   puppeteer: {
     headless: true,
     args: ['--no-sandbox']
@@ -65,9 +65,9 @@ async function registerHardcodedNumber() {
 
   await db.query(`
     INSERT INTO sessions (session_id, business_number, timestamp)
-    VALUES ('trover-bot-session', $1, NOW())
-    ON CONFLICT (session_id) DO UPDATE SET business_number = $1, timestamp = NOW()
-  `, [centralBusinessNumber]);
+    VALUES ($1, $2, NOW())
+    ON CONFLICT (session_id) DO UPDATE SET business_number = $2, timestamp = NOW()
+  `, [process.env.WHATSAPP_SESSION_ID, centralBusinessNumber]);
 
   console.log(`✅ Business number registered: ${centralBusinessNumber}`);
 }
@@ -135,10 +135,10 @@ client.on('message', async msg => {
   // AI fallback
   try {
     const aiResponse = await axios.post(
-      'https://troverstarapiai.vercel.app/api/chat',
+      process.env.AI_API_URL,
       {
         messages: [{ role: "user", content: msg.body }],
-        model: "gpt-3.5-turbo"
+        model: process.env.AI_MODEL
       },
       { headers: { "Content-Type": "application/json" } }
     );

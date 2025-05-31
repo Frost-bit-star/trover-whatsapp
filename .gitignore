@@ -1,0 +1,15 @@
+# Node.js dependencies
+/node_modules/
+
+# Environment variables file
+.env
+
+# WhatsApp session folders (LocalAuth)
+trover-bot-session/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
