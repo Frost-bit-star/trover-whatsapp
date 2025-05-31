@@ -3,8 +3,14 @@ const chromium = require('@sparticuz/chromium');
 const fs = require('fs');
 const path = require('path');
 
-// Use this as the session key and storage folder
-const sessionKey = '+255776822641';
+// Raw session key (e.g., phone number)
+const rawSessionKey = '+255776822641';
+
+// Sanitize clientId to allow only alphanumeric, underscores, and hyphens
+const sessionKey = rawSessionKey.replace(/[^a-zA-Z0-9_-]/g, '');
+
+// Log the final clientId for debugging
+console.log(`🆔 Using clientId: ${sessionKey}`);
 
 (async () => {
   const client = new Client({
