@@ -5,10 +5,8 @@ const express = require('express');
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
 
-// Initialize Supabase client
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// PostgreSQL Client config
 const db = new PgClient({
   host: process.env.DB_HOST,
   port: Number(process.env.DB_PORT),
@@ -17,6 +15,11 @@ const db = new PgClient({
   password: process.env.DB_PASSWORD,
   ssl: { rejectUnauthorized: false }
 });
+
+// Utility: Generate random 8-digit code for API keys
+function generate8DigitCode() {
+  return Math.floor(10000000 + Math.random() * 90000000).toString();
+}
 
 async function initializeDatabase() {
   await db.connect();
@@ -47,15 +50,13 @@ async function initializeDatabase() {
   console.log('🛠️ Database initialized.');
 }
 
-// SupabaseAuth implements whatsapp-web.js authStrategy interface
 class SupabaseAuth {
   constructor(sessionId) {
     this.sessionId = sessionId;
     this.sessionData = null;
   }
 
-  // Called once during Client init
-  async setup(client) {
+  async setup() {
     try {
       const { data, error } = await supabase
         .from('whatsapp_sessions')
@@ -69,7 +70,6 @@ class SupabaseAuth {
       }
 
       this.sessionData = data?.session_data || null;
-
       console.log(this.sessionData
         ? '✅ Loaded WhatsApp session from Supabase'
         : 'ℹ️ No WhatsApp session found in Supabase, starting fresh');
@@ -79,12 +79,10 @@ class SupabaseAuth {
     }
   }
 
-  // Called before authenticating
-  async beforeAuth(client) {
-    // No special action needed here for now
+  async beforeAuth() {
+    // No action needed before auth for now
   }
 
-  // Save updated auth token/session
   async saveAuthToken(token) {
     this.sessionData = token;
     try {
@@ -105,12 +103,10 @@ class SupabaseAuth {
     }
   }
 
-  // Return the stored auth token/session
   async getAuthToken() {
     return this.sessionData;
   }
 
-  // Clear session (e.g., on logout)
   async clearAuth() {
     try {
       const { error } = await supabase
@@ -137,31 +133,31 @@ async function main() {
   const app = express();
   app.use(express.json());
 
-  const centralBusinessNumber = process.env.BUSINESS_NUMBER;
+  const businessNumber = process.env.BUSINESS_NUMBER;
+  const sessionId = process.env.WHATSAPP_SESSION_ID;
 
   const client = new Client({
-    authStrategy: new SupabaseAuth(process.env.WHATSAPP_SESSION_ID),
+    authStrategy: new SupabaseAuth(sessionId),
     puppeteer: {
       headless: true,
       args: ['--no-sandbox']
     }
   });
 
-  // Register the business number in DB settings & sessions table
-  async function registerHardcodedNumber() {
+  async function registerBusinessNumber() {
     try {
       await db.query(`
         INSERT INTO settings (key, value) VALUES ('centralNumber', $1)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-      `, [centralBusinessNumber]);
+      `, [businessNumber]);
 
       await db.query(`
         INSERT INTO sessions (session_id, business_number, timestamp)
         VALUES ($1, $2, NOW())
-        ON CONFLICT (session_id) DO UPDATE SET business_number = $2, timestamp = NOW()
-      `, [process.env.WHATSAPP_SESSION_ID, centralBusinessNumber]);
+        ON CONFLICT (session_id) DO UPDATE SET business_number = EXCLUDED.business_number, timestamp = NOW()
+      `, [sessionId, businessNumber]);
 
-      console.log(`✅ Business number registered: ${centralBusinessNumber}`);
+      console.log(`✅ Business number registered: ${businessNumber}`);
     } catch (err) {
       console.error('Failed to register business number:', err);
     }
@@ -169,7 +165,7 @@ async function main() {
 
   client.on('ready', () => {
     console.log('✅ WhatsApp bot is ready and online!');
-    registerHardcodedNumber();
+    registerBusinessNumber();
   });
 
   client.on('authenticated', () => {
@@ -181,7 +177,7 @@ async function main() {
   });
 
   client.on('disconnected', reason => {
-    console.log('⚠️ WhatsApp disconnected:', reason);
+    console.warn('⚠️ WhatsApp disconnected:', reason);
   });
 
   client.on('message', async msg => {
@@ -189,11 +185,12 @@ async function main() {
       const senderNumber = msg.from.split('@')[0];
       const text = msg.body.trim().toLowerCase();
 
-      if (!centralBusinessNumber) {
+      if (!businessNumber) {
         return client.sendMessage(msg.from, `🚫 Bot is not activated.`);
       }
 
-      if (msg.to !== `${centralBusinessNumber}@c.us` && senderNumber !== centralBusinessNumber) {
+      // Only allow messaging the business number
+      if (msg.to !== `${businessNumber}@c.us` && senderNumber !== businessNumber) {
         return client.sendMessage(msg.from, `🚫 You can only communicate with the business number.`);
       }
 
@@ -226,7 +223,7 @@ async function main() {
         return;
       }
 
-      // AI fallback
+      // Fallback: AI-powered reply
       try {
         const aiResponse = await axios.post(
           process.env.AI_API_URL,
@@ -257,7 +254,9 @@ async function main() {
 
     try {
       const result = await db.query('SELECT id FROM users WHERE api_key = $1 LIMIT 1', [apikey]);
-      if (result.rows.length === 0) return res.status(401).send("Invalid API key");
+      if (result.rows.length === 0) {
+        return res.status(401).send("Invalid API key");
+      }
 
       const number = result.rows[0].id;
       const chatId = `${number}@c.us`;
@@ -272,4 +271,16 @@ async function main() {
       res.send("✅ Message sent from business number");
     } catch (e) {
       console.error('Send Error:', e);
-      res.status(500).send("❌
+      res.status(500).send("❌ Failed to send message");
+    }
+  });
+
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+  });
+
+  client.initialize();
+}
+
+main().catch(console.error);
