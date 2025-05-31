@@ -23,17 +23,19 @@ console.log(`🆔 Using clientId: ${sessionKey}`);
     }
   });
 
-  // 🔑 SHOW QR CODE FOR PAIRING
+  // 📷 QR fallback for environments where pairing code is not available
   client.on('qr', qr => {
     console.log('\n📷 WhatsApp QR Code (scan this with your phone):');
     console.log(qr);
     console.log('\n📱 Open WhatsApp > Linked Devices > Scan QR Code');
   });
 
+  // ✅ WhatsApp is ready
   client.on('ready', () => {
     console.log(`✅ WhatsApp is ready for ${sessionKey}!`);
   });
 
+  // 🔐 Successfully authenticated
   client.on('authenticated', async () => {
     console.log(`🔐 Successfully authenticated for number: ${sessionKey}`);
 
@@ -48,18 +50,22 @@ console.log(`🆔 Using clientId: ${sessionKey}`);
     }
   });
 
+  // ❌ Authentication failed
   client.on('auth_failure', msg => {
     console.error('❌ Authentication failure:', msg);
   });
 
+  // ⚠️ Client disconnected
   client.on('disconnected', reason => {
     console.warn('⚠️ Client disconnected:', reason);
     process.exit(0);
   });
 
+  // 🔑 Show real 8-character alphanumeric pairing code
   client.on('pairing-code', code => {
-    console.log(`🔑 Real WhatsApp Pairing Code: ${code}`);
-    console.log('📱 Go to WhatsApp > Linked Devices > Use Pairing Code.');
+    console.log('\n🔑 Your WhatsApp Pairing Code:');
+    console.log(`📲 ${code}`);
+    console.log('👉 Open WhatsApp > Linked Devices > Link a device > Enter code manually');
   });
 
   await client.initialize();
