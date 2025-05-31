@@ -1,6 +1,6 @@
 require('dotenv').config();
+const { Client, MessageMedia } = require('whatsapp-web.js'); // Removed AuthStrategy import
 const { Client: PgClient } = require('pg');
-const { Client, MessageMedia, AuthStrategy } = require('whatsapp-web.js');
 const express = require('express');
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
@@ -48,9 +48,8 @@ async function initializeDatabase() {
 }
 
 // Custom Auth Strategy for Supabase session storage
-class SupabaseAuth extends AuthStrategy {
+class SupabaseAuth {
   constructor(sessionId) {
-    super();
     this.sessionId = sessionId;
     this.sessionData = null;
   }
