@@ -1,0 +1,9 @@
+Admin - WhatsApp Bot body { font-family: Arial, sans-serif; background: #f7f9fc; margin: 0; padding: 2rem; color: #333; } h1 { color: #1a73e8; } pre { background: #fff; border: 1px solid #ccc; padding: 1rem; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; } .error { color: red; } 
+
+WhatsApp Bot Admin
+
+This page shows the content of your creds.json file if available.
+
+Loading...
+
+fetch('/admin/creds') .then(res => res.ok ? res.json() : res.text().then(txt => { throw new Error(txt); })) .then(data => { document.getElementById('output').innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>'; <pre><code> }) .catch(err =&gt; { document.getElementById('output').innerHTML = '&lt;p class=&quot;error&quot;&gt;❌ ' + err.message + '&lt;/p&gt;'; }); </code></pre> 
