@@ -1,32 +1,37 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
+const chromium = require('@sparticuz/chromium');
+const fs = require('fs');
+const path = require('path');
 
-function generatePairingCode() {
-  return Math.floor(10000000 + Math.random() * 90000000).toString();
-}
+// Use this as the session key and storage folder
+const sessionKey = '+255776822641';
 
 (async () => {
-  const pairingCode = generatePairingCode();
-  console.log(`\n🔑 Your pairing code (session key) is: ${pairingCode}\n`);
-
   const client = new Client({
-    authStrategy: new LocalAuth({ clientId: pairingCode }),
+    authStrategy: new LocalAuth({ clientId: sessionKey }),
     puppeteer: {
-      headless: false, // open browser UI to see numeric pairing code
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
+      args: chromium.args,
     }
   });
 
-  client.on('qr', (qr) => {
-    // QR event still fires if multi-device is off, but you won't use it
-    console.log('⚠️ QR code generated (ignore if using numeric code):', qr);
-  });
-
   client.on('ready', () => {
-    console.log(`✅ WhatsApp client is ready and authenticated with pairing code: ${pairingCode}`);
+    console.log(`✅ WhatsApp is ready for ${sessionKey}!`);
   });
 
-  client.on('authenticated', () => {
-    console.log(`🔐 Authenticated! Session saved with pairing code: ${pairingCode}`);
+  client.on('authenticated', async () => {
+    console.log(`🔐 Successfully authenticated for number: ${sessionKey}`);
+
+    const sessionPath = path.join('.wwebjs_auth', `session-${sessionKey}`, 'creds.json');
+    
+    try {
+      const sessionData = fs.readFileSync(sessionPath, 'utf-8');
+      console.log('📦 FULL SESSION DATA:');
+      console.log(sessionData);
+    } catch (err) {
+      console.error('❌ Could not read session file:', err);
+    }
   });
 
   client.on('auth_failure', msg => {
@@ -36,6 +41,11 @@ function generatePairingCode() {
   client.on('disconnected', reason => {
     console.warn('⚠️ Client disconnected:', reason);
     process.exit(0);
+  });
+
+  client.on('pairing-code', (code) => {
+    console.log(`🔑 Real WhatsApp Pairing Code: ${code}`);
+    console.log('📱 Go to WhatsApp > Linked Devices > Use Pairing Code.');
   });
 
   await client.initialize();
