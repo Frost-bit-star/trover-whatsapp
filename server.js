@@ -1,20 +1,23 @@
 require('dotenv').config();
 const { Client: PgClient } = require('pg');
-const { Client, MessageMedia, LocalAuth } = require('whatsapp-web.js');
+const { Client, MessageMedia, AuthStrategy } = require('whatsapp-web.js');
 const express = require('express');
 const axios = require('axios');
+const { createClient } = require('@supabase/supabase-js');
+
+// Initialize Supabase client
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 // PostgreSQL Client
 const db = new PgClient({
   host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
+  port: Number(process.env.DB_PORT),
   database: process.env.DB_NAME,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
+  ssl: { rejectUnauthorized: false }
 });
 
-// Auto-create required tables
 async function initializeDatabase() {
   await db.connect();
 
@@ -44,13 +47,78 @@ async function initializeDatabase() {
   console.log('🛠️ Database initialized.');
 }
 
+// Custom Auth Strategy for Supabase session storage
+class SupabaseAuth extends AuthStrategy {
+  constructor(sessionId) {
+    super();
+    this.sessionId = sessionId;
+    this.sessionData = null;
+  }
+
+  // Called by whatsapp-web.js on init
+  async init() {
+    const { data, error } = await supabase
+      .from('whatsapp_sessions')
+      .select('session_data')
+      .eq('session_id', this.sessionId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      // PGRST116 = No rows found, ignore this error
+      console.error('Supabase session load error:', error);
+      throw error;
+    }
+
+    if (data) {
+      this.sessionData = data.session_data;
+      console.log('✅ Loaded WhatsApp session from Supabase');
+    } else {
+      console.log('ℹ️ No WhatsApp session found in Supabase, starting fresh');
+    }
+  }
+
+  async saveSession(sessionData) {
+    this.sessionData = sessionData;
+
+    const { error } = await supabase.from('whatsapp_sessions').upsert({
+      session_id: this.sessionId,
+      session_data: this.sessionData,
+      updated_at: new Date().toISOString()
+    });
+
+    if (error) {
+      console.error('Supabase session save error:', error);
+      throw error;
+    }
+    console.log('✅ Saved WhatsApp session to Supabase');
+  }
+
+  async getSession() {
+    return this.sessionData;
+  }
+
+  async clearSession() {
+    const { error } = await supabase
+      .from('whatsapp_sessions')
+      .delete()
+      .eq('session_id', this.sessionId);
+
+    if (error) {
+      console.error('Supabase session clear error:', error);
+      throw error;
+    }
+    this.sessionData = null;
+    console.log('✅ Cleared WhatsApp session from Supabase');
+  }
+}
+
 const app = express();
 app.use(express.json());
 
 let centralBusinessNumber = process.env.BUSINESS_NUMBER;
 
 const client = new Client({
-  authStrategy: new LocalAuth({ clientId: process.env.WHATSAPP_SESSION_ID }),
+  authStrategy: new SupabaseAuth(process.env.WHATSAPP_SESSION_ID),
   puppeteer: {
     headless: true,
     args: ['--no-sandbox']
@@ -151,7 +219,6 @@ client.on('message', async msg => {
   }
 });
 
-// API to send messages
 app.post('/api/send', async (req, res) => {
   const { apikey, message, mediaUrl, caption } = req.body;
 
@@ -180,7 +247,6 @@ app.post('/api/send', async (req, res) => {
   }
 });
 
-// Store ping API
 app.post('/api/sell-ping', async (req, res) => {
   const { storeName, customerNumber } = req.body;
 
@@ -206,8 +272,3 @@ app.get('/ping', (req, res) => {
 app.listen(3000, async () => {
   await initializeDatabase();
   console.log('🚀 Server running on port 3000');
-});
-
-function generate8DigitCode() {
-  return Math.floor(10000000 + Math.random() * 90000000).toString();
-}
