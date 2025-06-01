@@ -1,4 +1,9 @@
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, generatePairingCode } = require('@whiskeysockets/baileys');
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+  generatePairingCode,
+} = require('@whiskeysockets/baileys');
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
@@ -9,11 +14,11 @@ const STORAGE_DIR = './storage';
 const SESSION_DIR = `${STORAGE_DIR}/session`;
 const DB_PATH = `${STORAGE_DIR}/database.sqlite`;
 const BUSINESS_NUMBER = '255776822641@s.whatsapp.net';
+const PAIRING_FILE = path.join(STORAGE_DIR, 'pairing_code.txt');
 
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR);
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR);
 
-// Setup DB
 const db = new sqlite3.Database(DB_PATH, err => {
   if (err) return console.error('❌ DB Error:', err);
   console.log('📦 SQLite DB connected');
@@ -29,13 +34,13 @@ function registerBusinessNumber() {
   db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('centralNumber', ?)`, [BUSINESS_NUMBER]);
 }
 
-let sock; // global socket
+let sock;
 
 async function startBot() {
   try {
     if (sock) {
       sock.ev.removeAllListeners();
-      await sock.logout().catch(() => {}); // logout safely before restart (optional)
+      await sock.logout().catch(() => {});
       sock.end();
     }
 
@@ -48,12 +53,13 @@ async function startBot() {
       printQRInTerminal: false,
     });
 
-    sock.ev.on('connection.update', async (update) => {
+    sock.ev.on('connection.update', async update => {
       const { connection, lastDisconnect, isNewLogin } = update;
 
       if (connection === 'open') {
         console.log('✅ WhatsApp bot is ready');
         registerBusinessNumber();
+        if (fs.existsSync(PAIRING_FILE)) fs.unlinkSync(PAIRING_FILE); // remove old pairing code
       }
 
       if (connection === 'close') {
@@ -69,8 +75,9 @@ async function startBot() {
       if (isNewLogin) {
         try {
           const code = await generatePairingCode(sock, 'Trover Bot');
+          fs.writeFileSync(PAIRING_FILE, code);
           console.log(`🔑 Pairing Code: ${code}`);
-          console.log(`👉 Open WhatsApp > Linked Devices > Link Device > Enter the code above`);
+          console.log('👉 Open WhatsApp > Linked Devices > Link Device > Enter Code');
         } catch (err) {
           console.error('❌ Failed to generate pairing code:', err);
         }
@@ -94,7 +101,7 @@ async function startBot() {
         db.run(`INSERT OR REPLACE INTO users (number, apiKey) VALUES (?, ?)`, [sender, apiKey], async err => {
           if (!err) {
             await sock.sendMessage(senderJid, {
-              text: `✅ You're activated!\n\nAPI Key: *${apiKey}*\nUse it at: https://trover.42web.io/devs.php`
+              text: `✅ You're activated!\n\nAPI Key: *${apiKey}*\nUse it at: https://trover.42web.io/devs.php`,
             });
           }
         });
@@ -125,10 +132,8 @@ async function startBot() {
     });
 
     return sock;
-
   } catch (err) {
     console.error('❌ startBot error:', err);
-    // Retry after delay if you want:
     setTimeout(startBot, 5000);
   }
 }
@@ -180,11 +185,20 @@ app.get('/admin/creds', (req, res) => {
   }
 });
 
+// 🔐 Pairing code route
+app.get('/pairing-code', (req, res) => {
+  if (fs.existsSync(PAIRING_FILE)) {
+    res.send(fs.readFileSync(PAIRING_FILE, 'utf-8'));
+  } else {
+    res.send('❌ Pairing code not yet generated.');
+  }
+});
+
 app.listen(3000, () => {
   console.log('🚀 Server running at http://localhost:3000');
 });
 
-process.on('uncaughtException', (err) => {
+process.on('uncaughtException', err => {
   console.error('Uncaught Exception:', err);
 });
 
