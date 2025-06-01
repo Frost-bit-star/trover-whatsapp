@@ -1,29 +1,29 @@
 {
-  "name": "whatsapp-bot",
+  "name": "troverstar-whatsapp-bot",
   "version": "1.0.0",
-  "description": "Deployment-ready WhatsApp bot using Baileys, with SQLite and REST API supporting alphanumeric pairing codes",
+  "description": "WhatsApp bot using Baileys, deployed on Render",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
-    "@whiskeysockets/baileys": "6.7.18",
+    "@whiskeysockets/baileys": "^6.7.18",
     "axios": "^1.6.8",
     "express": "^4.19.2",
     "sqlite3": "^5.1.6",
     "qrcode-terminal": "^0.12.0"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  },
   "keywords": [
     "whatsapp",
     "baileys",
+    "render",
     "bot",
-    "sqlite",
-    "api",
-    "nodejs"
+    "express",
+    "sqlite"
   ],
-  "author": "YourName",
+  "author": "Troverstar",
   "license": "MIT"
 }

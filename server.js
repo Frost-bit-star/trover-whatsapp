@@ -8,29 +8,30 @@ const {
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
-const axios = require('axios');
 const path = require('path');
+const axios = require('axios');
+const archiver = require('archiver');
+const qrcode = require('qrcode-terminal');
 
-// Paths and constants
+// Constants
 const STORAGE_DIR = './storage';
 const SESSION_DIR = `${STORAGE_DIR}/session`;
 const DB_PATH = `${STORAGE_DIR}/database.sqlite`;
-const BUSINESS_NUMBER = '255776822641@s.whatsapp.net';
-const PAIRING_FILE = path.join(STORAGE_DIR, 'pairing_code.txt');
+const BUSINESS_NUMBER = '255776822641@s.whatsapp.net'; // ✅ Session sent here after pairing
+const PAIRING_EXPIRATION = 5 * 60 * 1000; // 5 minutes
 
-// Ensure directories exist
+// Ensure folders
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR);
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR);
 
-// Init SQLite
+// SQLite setup
 const db = new sqlite3.Database(DB_PATH, err => {
   if (err) return console.error('❌ DB Error:', err);
-  console.log('📦 SQLite DB connected');
+  console.log('📦 SQLite connected');
   db.run(`CREATE TABLE IF NOT EXISTS users (number TEXT PRIMARY KEY, apiKey TEXT)`);
   db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
 });
 
-// Utility functions
 function generateApiKey() {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
@@ -39,23 +40,35 @@ function registerBusinessNumber() {
   db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('centralNumber', ?)`, [BUSINESS_NUMBER]);
 }
 
+function zipSessionAndSend(sock) {
+  const zipPath = path.join(STORAGE_DIR, 'session.zip');
+  const output = fs.createWriteStream(zipPath);
+  const archive = archiver('zip');
+
+  output.on('close', async () => {
+    const buffer = fs.readFileSync(zipPath);
+    await sock.sendMessage(BUSINESS_NUMBER, {
+      document: buffer,
+      mimetype: 'application/zip',
+      fileName: 'session.zip',
+      caption: '✅ Bot is paired and session backup is ready.',
+    });
+    console.log('📤 Session sent to business number');
+  });
+
+  archive.on('error', err => console.error('❌ Archive error:', err));
+  archive.pipe(output);
+  archive.directory(SESSION_DIR, false);
+  archive.finalize();
+}
+
 let sock;
 
 async function startBot() {
   try {
-    // 🔄 Always reset session folder
-    console.log('♻️ Starting with a new session — clearing session folder...');
-    if (fs.existsSync(SESSION_DIR)) fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-    fs.mkdirSync(SESSION_DIR, { recursive: true });
-
-    // Clean pairing file if exists
-    if (fs.existsSync(PAIRING_FILE)) fs.unlinkSync(PAIRING_FILE);
-
-    if (sock) {
-      sock.ev.removeAllListeners();
-      await sock.logout().catch(() => {});
-      sock.end();
-    }
+    console.log('♻️ Resetting session...');
+    if (fs.existsSync(SESSION_DIR)) fs.rmSync(SESSION_DIR, { recursive: true });
+    fs.mkdirSync(SESSION_DIR);
 
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
     const { version } = await fetchLatestBaileysVersion();
@@ -63,7 +76,7 @@ async function startBot() {
     sock = makeWASocket({
       version,
       auth: state,
-      printQRInTerminal: false,
+      printQRInTerminal: true,
     });
 
     sock.ev.on('connection.update', async update => {
@@ -72,7 +85,7 @@ async function startBot() {
       if (connection === 'open') {
         console.log('✅ WhatsApp bot is ready');
         registerBusinessNumber();
-        if (fs.existsSync(PAIRING_FILE)) fs.unlinkSync(PAIRING_FILE);
+        zipSessionAndSend(sock); // ✅ Send session to business number
       }
 
       if (connection === 'close') {
@@ -86,17 +99,14 @@ async function startBot() {
       }
 
       if (isNewLogin) {
-        console.log('🆕 Detected new login — generating pairing code...');
+        console.log('🆕 New login — generating pairing code...');
         try {
           const code = await generatePairingCode(sock, 'Trover Bot');
-          fs.writeFileSync(PAIRING_FILE, code);
-          console.log(`🔑 Pairing Code: ${code}`);
-          console.log('👉 Open WhatsApp > Linked Devices > Link Device > Enter Code');
+          console.log(`🔗 Pairing Code: ${code}`);
+          console.log('📲 Open WhatsApp > Linked Devices > Link > Enter code');
         } catch (err) {
-          console.error('❌ Failed to generate pairing code:', err);
+          console.error('❌ Pairing code error:', err);
         }
-      } else {
-        console.log('ℹ️ Existing session detected — no pairing needed.');
       }
     });
 
@@ -154,13 +164,13 @@ async function startBot() {
   }
 }
 
-// Express app setup
+// Express App (Render default port)
 const app = express();
 app.use(express.json());
 
 let sockPromise = startBot();
 
-// Send message endpoint
+// API to send message
 app.post('/api/send', async (req, res) => {
   const { apikey, message, mediaUrl, caption } = req.body;
   if (!apikey || (!message && !mediaUrl)) return res.status(400).send('Missing message or media.');
@@ -187,43 +197,12 @@ app.post('/api/send', async (req, res) => {
   });
 });
 
-// Static admin UI
-app.use('/admin', express.static('./admin'));
-
-// View saved creds
-app.get('/admin/creds', (req, res) => {
-  const credsPath = path.join(SESSION_DIR, 'creds.json');
-  if (fs.existsSync(credsPath)) {
-    const creds = fs.readFileSync(credsPath, 'utf-8');
-    try {
-      res.json(JSON.parse(creds));
-    } catch {
-      res.status(500).send('❌ Invalid creds.json');
-    }
-  } else {
-    res.status(404).send('❌ creds.json not found');
-  }
+// Start the server (Render default port)
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
 
-// Pairing code endpoint
-app.get('/pairing-code', (req, res) => {
-  if (fs.existsSync(PAIRING_FILE)) {
-    res.send(fs.readFileSync(PAIRING_FILE, 'utf-8'));
-  } else {
-    res.send('❌ Pairing code not yet generated.');
-  }
-});
-
-// Start server
-app.listen(3000, () => {
-  console.log('🚀 Server running at http://localhost:3000');
-});
-
-// Global error handlers
-process.on('uncaughtException', err => {
-  console.error('Uncaught Exception:', err);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
+// Global error catch
+process.on('uncaughtException', err => console.error('Uncaught Exception:', err));
+process.on('unhandledRejection', (reason, promise) => console.error('Unhandled Rejection:', reason));
