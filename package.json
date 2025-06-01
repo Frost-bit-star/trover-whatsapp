@@ -1,7 +1,7 @@
 {
-  "name": "troverstar-whatsapp-bot",
+  "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "WhatsApp bot using Baileys, deployed on Render",
+  "description": "WhatsApp bot using Baileys for Troverstar, deployed on Render",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -12,17 +12,18 @@
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.18",
     "axios": "^1.6.8",
+    "archiver": "^6.0.2",
     "express": "^4.19.2",
-    "sqlite3": "^5.1.6",
-    "qrcode-terminal": "^0.12.0"
+    "sqlite3": "^5.1.6"
   },
   "keywords": [
     "whatsapp",
     "baileys",
-    "render",
     "bot",
     "express",
-    "sqlite"
+    "sqlite",
+    "render",
+    "troverstar"
   ],
   "author": "Troverstar",
   "license": "MIT"
