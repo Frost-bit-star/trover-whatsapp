@@ -1,5 +1,5 @@
 // WhatsApp Bot using Baileys v6.7.18 with predefined session
-const { default: makeWASocket, fetchLatestBaileysVersion, useSingleFileAuthState } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
@@ -61,10 +61,17 @@ let sock;
 async function startBot() {
   try {
     const { version } = await fetchLatestBaileysVersion();
-    const { state } = useSingleFileAuthState(path.join(SESSION_DIR, 'auth_info.json'));
-    state.creds = session.creds; // Apply predefined session
 
-    sock = makeWASocket({ version, auth: state });
+    sock = makeWASocket({
+      version,
+      auth: {
+        creds: session.creds,
+        keys: {
+          get: async () => ({}),
+          set: async () => {},
+        }
+      }
+    });
 
     sock.ev.on('connection.update', async update => {
       const { connection, lastDisconnect } = update;
