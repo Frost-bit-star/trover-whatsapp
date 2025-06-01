@@ -1,26 +1,27 @@
 {
   "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "Deployment-ready WhatsApp bot with hardcoded session and REST API",
+  "description": "Deployment-ready WhatsApp bot using Baileys, with SQLite and REST API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
     "axios": "^1.6.8",
     "express": "^4.19.2",
-    "sqlite3": "^5.1.6",
-    "whatsapp-web.js": "^1.28.0"
+    "sqlite3": "^5.1.6"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "keywords": [
     "whatsapp",
+    "baileys",
     "bot",
-    "session",
     "sqlite",
-    "api"
+    "api",
+    "nodejs"
   ],
   "author": "YourName",
   "license": "MIT"
