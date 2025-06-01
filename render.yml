@@ -1,13 +1,13 @@
 services:
   - type: web
     name: whatsapp-bot
-    runtime: node
+    env: node
     region: oregon
     plan: free
     buildCommand: npm install
     startCommand: node server.js
-    envVars:
-      - key: NODE_VERSION
-        value: 18
     autoDeploy: true
     branch: main
+    envVars:
+      - key: NODE_VERSION
+        value: "18"
