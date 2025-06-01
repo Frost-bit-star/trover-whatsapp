@@ -1,16 +1,17 @@
 {
   "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "Deployment-ready WhatsApp bot using Baileys, with SQLite and REST API",
+  "description": "Deployment-ready WhatsApp bot using Baileys, with SQLite and REST API supporting alphanumeric pairing codes",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.18",
+    "@whiskeysockets/baileys": "6.7.18",
     "axios": "^1.6.8",
     "express": "^4.19.2",
-    "sqlite3": "^5.1.6"
+    "sqlite3": "^5.1.6",
+    "qrcode-terminal": "^0.12.0"
   },
   "engines": {
     "node": ">=18.0.0"

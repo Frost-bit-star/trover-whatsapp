@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore, downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, generatePairingCode, downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
@@ -35,26 +35,36 @@ async function startBot() {
 
   const sock = makeWASocket({
     version,
-    printQRInTerminal: true,
     auth: state,
+    printQRInTerminal: false,
   });
 
-  const store = makeInMemoryStore({ logger: console });
-  store.bind(sock.ev);
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect, isNewLogin } = update;
 
-  sock.ev.on('creds.update', saveCreds);
-
-  sock.ev.on('connection.update', update => {
-    const { connection, lastDisconnect } = update;
     if (connection === 'open') {
       console.log('✅ WhatsApp bot is ready');
       registerBusinessNumber();
-    } else if (connection === 'close') {
+    }
+
+    if (connection === 'close') {
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== 401;
       console.log('🔌 Disconnected:', lastDisconnect?.error);
       if (shouldReconnect) startBot();
     }
+
+    if (isNewLogin) {
+      try {
+        const code = await generatePairingCode(sock, 'Trover Bot');
+        console.log(`🔑 Pairing Code: ${code}`);
+        console.log(`👉 Open WhatsApp > Linked Devices > Link Device > Enter the code above`);
+      } catch (err) {
+        console.error('❌ Failed to generate pairing code:', err);
+      }
+    }
   });
+
+  sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
@@ -135,7 +145,6 @@ app.post('/api/send', async (req, res) => {
   });
 });
 
-// Static admin + creds viewer
 app.use('/admin', express.static('./admin'));
 
 app.get('/admin/creds', (req, res) => {
