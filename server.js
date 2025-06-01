@@ -59,6 +59,8 @@ function initializeClient() {
   });
 
   let pairingMessageShown = false;
+  let lastPairingRequestTime = 0;
+  const PAIRING_COOLDOWN_MS = 90 * 1000; // 1.5 minutes
 
   client.on('qr', async qr => {
     console.log('📸 QR Code generated.');
@@ -67,8 +69,15 @@ function initializeClient() {
       console.log('📲 Open WhatsApp > Settings > Linked Devices and scan the QR code to connect.');
     }
 
+    const now = Date.now();
+    if (now - lastPairingRequestTime < PAIRING_COOLDOWN_MS) {
+      console.log('⏳ Skipping pairing code request — waiting for cooldown...');
+      return;
+    }
+
     try {
       const code = await client.requestPairingCode(BUSINESS_NUMBER);
+      lastPairingRequestTime = now;
       console.log(`🔑 Pairing Code: ${code}`);
     } catch (err) {
       console.log('⚠️ Failed to generate pairing code. Possibly already paired.');
