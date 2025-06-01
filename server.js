@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, generatePairingCode, downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, generatePairingCode } = require('@whiskeysockets/baileys');
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
@@ -29,89 +29,108 @@ function registerBusinessNumber() {
   db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('centralNumber', ?)`, [BUSINESS_NUMBER]);
 }
 
+let sock; // global socket
+
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
-  const { version } = await fetchLatestBaileysVersion();
-
-  const sock = makeWASocket({
-    version,
-    auth: state,
-    printQRInTerminal: false,
-  });
-
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, isNewLogin } = update;
-
-    if (connection === 'open') {
-      console.log('✅ WhatsApp bot is ready');
-      registerBusinessNumber();
+  try {
+    if (sock) {
+      sock.ev.removeAllListeners();
+      await sock.logout().catch(() => {}); // logout safely before restart (optional)
+      sock.end();
     }
 
-    if (connection === 'close') {
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== 401;
-      console.log('🔌 Disconnected:', lastDisconnect?.error);
-      if (shouldReconnect) startBot();
-    }
+    const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+    const { version } = await fetchLatestBaileysVersion();
 
-    if (isNewLogin) {
-      try {
-        const code = await generatePairingCode(sock, 'Trover Bot');
-        console.log(`🔑 Pairing Code: ${code}`);
-        console.log(`👉 Open WhatsApp > Linked Devices > Link Device > Enter the code above`);
-      } catch (err) {
-        console.error('❌ Failed to generate pairing code:', err);
+    sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+    });
+
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, isNewLogin } = update;
+
+      if (connection === 'open') {
+        console.log('✅ WhatsApp bot is ready');
+        registerBusinessNumber();
       }
-    }
-  });
 
-  sock.ev.on('creds.update', saveCreds);
-
-  sock.ev.on('messages.upsert', async ({ messages }) => {
-    const msg = messages[0];
-    if (!msg.message || msg.key.fromMe) return;
-
-    const senderJid = msg.key.remoteJid;
-    const sender = senderJid.split('@')[0];
-    const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
-
-    if (senderJid === BUSINESS_NUMBER) return;
-
-    if (body.toLowerCase().includes('allow me')) {
-      const apiKey = generateApiKey();
-      db.run(`INSERT OR REPLACE INTO users (number, apiKey) VALUES (?, ?)`, [sender, apiKey], async err => {
-        if (!err) {
-          await sock.sendMessage(senderJid, {
-            text: `✅ You're activated!\n\nAPI Key: *${apiKey}*\nUse it at: https://trover.42web.io/devs.php`
-          });
+      if (connection === 'close') {
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        console.log('🔌 Disconnected:', lastDisconnect?.error);
+        const shouldReconnect = statusCode !== 401;
+        if (shouldReconnect) {
+          console.log('♻️ Reconnecting...');
+          await startBot();
         }
-      });
-      return;
-    }
+      }
 
-    if (body.toLowerCase().includes('recover apikey')) {
-      db.get(`SELECT apiKey FROM users WHERE number = ?`, [sender], async (err, row) => {
-        if (row) {
-          await sock.sendMessage(senderJid, { text: `🔑 Your API Key: *${row.apiKey}*` });
-        } else {
-          await sock.sendMessage(senderJid, { text: `❌ Not found. Please send *allow me* to register.` });
+      if (isNewLogin) {
+        try {
+          const code = await generatePairingCode(sock, 'Trover Bot');
+          console.log(`🔑 Pairing Code: ${code}`);
+          console.log(`👉 Open WhatsApp > Linked Devices > Link Device > Enter the code above`);
+        } catch (err) {
+          console.error('❌ Failed to generate pairing code:', err);
         }
-      });
-      return;
-    }
+      }
+    });
 
-    try {
-      const ai = await axios.post('https://troverstarapiai.vercel.app/api/chat', {
-        messages: [{ role: 'user', content: body }],
-        model: 'gpt-3.5-turbo',
-      });
-      const reply = ai.data?.response?.content || '🤖 No response.';
-      await sock.sendMessage(senderJid, { text: reply });
-    } catch {
-      await sock.sendMessage(senderJid, { text: '🤖 AI service is unavailable.' });
-    }
-  });
+    sock.ev.on('creds.update', saveCreds);
 
-  return sock;
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+      const msg = messages[0];
+      if (!msg.message || msg.key.fromMe) return;
+
+      const senderJid = msg.key.remoteJid;
+      const sender = senderJid.split('@')[0];
+      const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+
+      if (senderJid === BUSINESS_NUMBER) return;
+
+      if (body.toLowerCase().includes('allow me')) {
+        const apiKey = generateApiKey();
+        db.run(`INSERT OR REPLACE INTO users (number, apiKey) VALUES (?, ?)`, [sender, apiKey], async err => {
+          if (!err) {
+            await sock.sendMessage(senderJid, {
+              text: `✅ You're activated!\n\nAPI Key: *${apiKey}*\nUse it at: https://trover.42web.io/devs.php`
+            });
+          }
+        });
+        return;
+      }
+
+      if (body.toLowerCase().includes('recover apikey')) {
+        db.get(`SELECT apiKey FROM users WHERE number = ?`, [sender], async (err, row) => {
+          if (row) {
+            await sock.sendMessage(senderJid, { text: `🔑 Your API Key: *${row.apiKey}*` });
+          } else {
+            await sock.sendMessage(senderJid, { text: `❌ Not found. Please send *allow me* to register.` });
+          }
+        });
+        return;
+      }
+
+      try {
+        const ai = await axios.post('https://troverstarapiai.vercel.app/api/chat', {
+          messages: [{ role: 'user', content: body }],
+          model: 'gpt-3.5-turbo',
+        });
+        const reply = ai.data?.response?.content || '🤖 No response.';
+        await sock.sendMessage(senderJid, { text: reply });
+      } catch {
+        await sock.sendMessage(senderJid, { text: '🤖 AI service is unavailable.' });
+      }
+    });
+
+    return sock;
+
+  } catch (err) {
+    console.error('❌ startBot error:', err);
+    // Retry after delay if you want:
+    setTimeout(startBot, 5000);
+  }
 }
 
 const app = express();
@@ -163,4 +182,12 @@ app.get('/admin/creds', (req, res) => {
 
 app.listen(3000, () => {
   console.log('🚀 Server running at http://localhost:3000');
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
