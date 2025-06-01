@@ -38,6 +38,13 @@ let sock;
 
 async function startBot() {
   try {
+    // 🔄 Reset session folder if requested via environment variable
+    if (process.env.RESET_SESSION === 'true') {
+      console.log('♻️ RESET_SESSION is true — clearing session folder...');
+      if (fs.existsSync(SESSION_DIR)) fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+      fs.mkdirSync(SESSION_DIR, { recursive: true });
+    }
+
     if (sock) {
       sock.ev.removeAllListeners();
       await sock.logout().catch(() => {});
@@ -59,7 +66,7 @@ async function startBot() {
       if (connection === 'open') {
         console.log('✅ WhatsApp bot is ready');
         registerBusinessNumber();
-        if (fs.existsSync(PAIRING_FILE)) fs.unlinkSync(PAIRING_FILE); // remove old pairing code
+        if (fs.existsSync(PAIRING_FILE)) fs.unlinkSync(PAIRING_FILE);
       }
 
       if (connection === 'close') {
@@ -73,6 +80,7 @@ async function startBot() {
       }
 
       if (isNewLogin) {
+        console.log('🆕 Detected new login — generating pairing code...');
         try {
           const code = await generatePairingCode(sock, 'Trover Bot');
           fs.writeFileSync(PAIRING_FILE, code);
@@ -81,6 +89,8 @@ async function startBot() {
         } catch (err) {
           console.error('❌ Failed to generate pairing code:', err);
         }
+      } else {
+        console.log('ℹ️ Existing session detected — no pairing needed.');
       }
     });
 
@@ -185,7 +195,6 @@ app.get('/admin/creds', (req, res) => {
   }
 });
 
-// 🔐 Pairing code route
 app.get('/pairing-code', (req, res) => {
   if (fs.existsSync(PAIRING_FILE)) {
     res.send(fs.readFileSync(PAIRING_FILE, 'utf-8'));
