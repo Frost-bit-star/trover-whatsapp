@@ -1,4 +1,4 @@
-// WhatsApp Bot using Baileys v6.7.18 with predefined session
+// server.js
 const { default: makeWASocket, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
@@ -6,19 +6,19 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const archiver = require('archiver');
-const { session } = require('./config');
+const { session, SESSION_PATH = './storage/session/session.json' } = require('./config');
 
 // Constants
 const STORAGE_DIR = './storage';
 const SESSION_DIR = `${STORAGE_DIR}/session`;
 const DB_PATH = `${STORAGE_DIR}/database.sqlite`;
-const BUSINESS_NUMBER = '25468974189@s.whatsapp.net';
+const BUSINESS_NUMBER = '255776822641@s.whatsapp.net';
 
-// Ensure storage directories
+// Ensure storage directories exist
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR);
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR);
 
-// SQLite setup
+// SQLite DB setup
 const db = new sqlite3.Database(DB_PATH, err => {
   if (err) return console.error('❌ DB Error:', err);
   console.log('📦 SQLite connected');
@@ -64,13 +64,28 @@ async function startBot() {
 
     sock = makeWASocket({
       version,
+      browser: ['Safari', 'Mac OS', '3.0'],
       auth: {
         creds: session.creds,
         keys: {
-          get: async () => ({}),
-          set: async () => {},
+          get: async (type, ids) => {
+            if (!session.keys?.[type]) return {};
+            const result = {};
+            for (const id of ids) {
+              if (session.keys[type][id]) result[id] = session.keys[type][id];
+            }
+            return result;
+          },
+          set: async (data) => {
+            for (const category in data) {
+              session.keys[category] ??= {};
+              Object.assign(session.keys[category], data[category]);
+            }
+            fs.writeFileSync(SESSION_PATH, JSON.stringify(session, null, 2));
+          }
         }
-      }
+      },
+      syncFullHistory: false
     });
 
     sock.ev.on('connection.update', async update => {
